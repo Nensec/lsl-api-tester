@@ -181,10 +181,6 @@
 #define TESTER_MODE_LOCAL 0
 #define TESTER_MODE_RUNNER 1
 
-#if TESTER_MODE==TESTER_MODE_RUNNER
-    #error "Runner mode is not yet implemented, coming soon in v1.1!"
-#endif
-
 #define TESTSTATE_IDLE 0
 #define TESTSTATE_SUCCESS 1
 #define TESTSTATE_FAILURE 2
@@ -468,6 +464,7 @@ saveRezzedDummy(key id)
     _currentTaskState = TASKSTATE_SUCCESS;
 }
 
+#ifndef LOADING_RUNNER
 default
 {
     state_entry()
@@ -793,11 +790,15 @@ state run_test
         else
             llRegionSayTo(id, TEST_CHANNEL, RELAY_COMMAND_ATTACH + " " + (string)DUMMY_ATTACH_POINT);
     }
-
+#endif
+#ifdef LOADING_RUNNER
+    timerFunction()
+#else
     timer()
+#endif
     {
         if(_activeTestState == TESTSTATE_SUCCESS || _activeTestState == TESTSTATE_FAILURE)
-            state load_next_test;
+            if(TRUE) state load_next_test;
 
         string currentActionType = llJsonGetValue(_currentTaskData, ["a"]);
         if(currentActionType == BOOST_PP_STRINGIZE(ACTION_REZ) || currentActionType == BOOST_PP_STRINGIZE(ACTION_ATTACH))
@@ -854,7 +855,7 @@ state run_test
             if(_currentTaskState == TASKSTATE_FAILURE)
             {
                 reportTaskState();
-                state load_next_test;
+                if(TRUE) state load_next_test;
             }
             else if(_currentTaskState == TASKSTATE_SUCCESS)
                 loadNextTask();
@@ -887,7 +888,7 @@ state run_test
             if(_currentTaskState == TASKSTATE_FAILURE)
             {
                 reportTaskState();
-                state load_next_test;
+                if(TRUE) state load_next_test;
             }
             else if(_currentTaskState == TASKSTATE_SUCCESS)
                 loadNextTask();
@@ -918,7 +919,7 @@ state run_test
             if(_currentTaskState == TASKSTATE_FAILURE)
             {
                 reportTaskState();
-                state load_next_test;
+                if(TRUE) state load_next_test;
             }
             else if(_currentTaskState == TASKSTATE_SUCCESS)
                 loadNextTask();
@@ -955,7 +956,7 @@ state run_test
             if(_currentTaskState == TASKSTATE_FAILURE)
             {
                 reportTaskState();
-                state load_next_test;
+                if(TRUE) state load_next_test;
             }
             else if(_currentTaskState == TASKSTATE_SUCCESS)
                 loadNextTask();
@@ -1010,10 +1011,12 @@ state run_test
             if(_currentTaskState == TASKSTATE_FAILURE)
             {
                 reportTaskState();
-                state load_next_test;
+                if(TRUE) state load_next_test;
             }
             else if(_currentTaskState == TASKSTATE_SUCCESS)
                 loadNextTask();
         }
     }
+#ifndef LOADING_RUNNER
 }
+#endif
