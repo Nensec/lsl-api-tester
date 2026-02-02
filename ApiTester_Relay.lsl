@@ -22,6 +22,7 @@ default
     state_entry()
     {
         llSetTimerEvent(30);
+        llOwnerSay(llJsonGetValue(llList2String(llJson2List(json), (integer)info), [llList2String(llJson2List(llList2String(llJson2List(json), (integer)info)), (integer)info), "name"]));
     }
 
     listen(integer channel, string name, key id, string message)
