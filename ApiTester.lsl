@@ -170,7 +170,7 @@
 #define SETUPPLACEHOLDERS()
 
 // Tip: Rather than define all of your tests in this script and keep copies of this entire script around, simply make them in a separate file and #include <yourtests.lsl>.
-// Just #define TEST_DATA, #define COMMON_ACTIONS and #define SETUPPLACEHOLDERS() in there and comment them out in the main script here.
+// Just #define TEST_DATA, #define COMMON_ACTIONS and #define SETUPPLACEHOLDERS() in there, make sure to #undef the macros in there or comment them out here!
 // That way you only need to change one line of code to change your entire test suite!
 
 // ####################################################################################
@@ -709,51 +709,28 @@ state run_test
 
         string testResult = llJsonSetValue("{}", ["n"], (string)_tests[_activeTest]);
         string taskResult;
-        if(_activeTestState == TESTSTATE_SUCCESS)
-        {
+        if(_activeTestState == TESTSTATE_SUCCESS)        
             testResult = llJsonSetValue(testResult, ["r"], "Success");
-            len = llGetListLength(actions);
-            for(i = 0; i < len; i++)
-            {
-                taskResult = "{}";
-                taskResult = llJsonSetValue(taskResult, ["n"], llJsonGetValue((string)actions[i], ["n"]));
-                taskResult = llJsonSetValue(taskResult, ["a"], llJsonGetValue((string)actions[i], ["a"]));
-                taskResult = llJsonSetValue(taskResult, ["r"], "Success");
-
-                testResult = llJsonSetValue(testResult, ["t", JSON_APPEND], taskResult);
-            }
-        }
         else
-        {
             testResult = llJsonSetValue(testResult, ["r"], "Failure");
-            for(i = 0; i < _currentTask; i++)
-            {
-                taskResult = "{}";
-                taskResult = llJsonSetValue(taskResult, ["n"], llJsonGetValue((string)actions[i], ["n"]));
-                taskResult = llJsonSetValue(taskResult, ["a"], llJsonGetValue((string)actions[i], ["a"]));
-                taskResult = llJsonSetValue(taskResult, ["r"], "Success");
 
-                testResult = llJsonSetValue(testResult, ["t", JSON_APPEND], taskResult);
-            }
-
+        len = llGetListLength(actions);
+        for(i = 0; i < len; i++)
+        {
             taskResult = "{}";
             taskResult = llJsonSetValue(taskResult, ["n"], llJsonGetValue((string)actions[i], ["n"]));
             taskResult = llJsonSetValue(taskResult, ["a"], llJsonGetValue((string)actions[i], ["a"]));
-            taskResult = llJsonSetValue(taskResult, ["r"], "Failure");
-            taskResult = llJsonSetValue(taskResult, ["m"], _currentTaskFailureMessage);
+            if(i == _currentTask && _activeTestState == TESTSTATE_FAILURE)
+            {
+                taskResult = llJsonSetValue(taskResult, ["r"], "Failure");
+                taskResult = llJsonSetValue(taskResult, ["m"], _currentTaskFailureMessage);
+            }
+            else if(i > _currentTask  && _activeTestState == TESTSTATE_FAILURE)
+                taskResult = llJsonSetValue(taskResult, ["r"], "Not run");
+            else
+                taskResult = llJsonSetValue(taskResult, ["r"], "Success");
 
             testResult = llJsonSetValue(testResult, ["t", JSON_APPEND], taskResult);
-
-            len = llGetListLength(actions) - _currentTask;
-            for(i = _currentTask + 1; i < len; i++)
-            {
-                taskResult = "{}";
-                taskResult = llJsonSetValue(taskResult, ["n"], llJsonGetValue((string)actions[i], ["n"]));
-                taskResult = llJsonSetValue(taskResult, ["a"], llJsonGetValue((string)actions[i], ["a"]));
-                taskResult = llJsonSetValue(taskResult, ["r"], "Not run");
-
-                testResult = llJsonSetValue(testResult, ["t", JSON_APPEND], taskResult);
-            }
         }
 
         llLinksetDataWrite("TEST_RESULT_" + (string)_tests[_activeTest], testResult);
