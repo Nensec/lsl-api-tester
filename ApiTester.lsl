@@ -308,10 +308,10 @@
 
 // Generate LSL
 #define TEST_WRITER(r, data, elem) \
-    llLinksetDataWrite("ACTIONS_" + BOOST_PP_TUPLE_ELEM(0, elem), "{\"deps\":" + llList2Json(JSON_ARRAY, BOOST_PP_TUPLE_ELEM(1, elem)) + ",\"actions\":[" + DEFER_STR(BOOST_PP_SEQ_FOR_EACH_I(BUILD_JSON, _, BOOST_PP_TUPLE_ELEM(2, elem))) + "]}");
+    llLinksetDataWrite("A_" + BOOST_PP_TUPLE_ELEM(0, elem), "{\"d\":" + llList2Json(JSON_ARRAY, BOOST_PP_TUPLE_ELEM(1, elem)) + ",\"a\":[" + DEFER_STR(BOOST_PP_SEQ_FOR_EACH_I(BUILD_JSON, _, BOOST_PP_TUPLE_ELEM(2, elem))) + "]}");
 
 #define COMMON_ACTION_WRITER(r, data, elem) \
-    llLinksetDataWrite("COMMON_" + DEFER_STR(BOOST_PP_TUPLE_ELEM(0, elem)), DEFER_STR(PROCESS_ELEM(BOOST_PP_TUPLE_POP_FRONT(elem))));
+    llLinksetDataWrite("C_" + DEFER_STR(BOOST_PP_TUPLE_ELEM(0, elem)), DEFER_STR(PROCESS_ELEM(BOOST_PP_TUPLE_POP_FRONT(elem))));
 
 // -- End of preprocessor macros
 
@@ -337,59 +337,36 @@ float _touch;
 
 // -- Helper functions
 
-string getStringParameter(string parameter)
+string getParameter(string parameter)
 {
-    string result;
-    string param = result = llJsonGetValue(_currentTaskData, [parameter]);
-    if(llGetSubString(param, 0, 0) == "$")
-        result = llLinksetDataRead(llGetSubString(param, 1, -1));
-    return result;
-}
+    string param = llJsonGetValue(_currentTaskData, [parameter]);
+    string result = "";
+    integer i = llSubStringIndex(param, "$");
 
-string replaceAllPlaceholders(string str)
-{
-    list strParts = llParseString2List(str, [" "], []);
-    integer i;
-    for(i = 0; i < llGetListLength(strParts); i++)
+    while(~i)
     {
-        string part = (string)strParts[i];
-        if(llGetSubString(part, 0, 0) == "$")
-            strParts[i] = llLinksetDataRead(llGetSubString(part, 1, -1));
+        result += llGetSubString(param, 0, i - 1);
+        param = llGetSubString(param, i + 1, -1);
+
+        integer space = llSubStringIndex(param, " ");
+        string placeholder;
+        
+        if(~space)
+        {
+            placeholder = llGetSubString(param, 0, space - 1);
+            param = llGetSubString(param, space, -1);
+        }
+        else
+        {
+            placeholder = param;
+            param = "";
+        }
+
+        result += llLinksetDataRead(placeholder);
+        i = llSubStringIndex(param, "$");
     }
-    return llDumpList2String(strParts, " ");
-}
 
-integer getIntegerParameter(string parameter)
-{
-    integer result;
-    string param = llJsonGetValue(_currentTaskData, [parameter]);
-    if(llGetSubString(param, 0, 0) == "$")
-        result = (integer)llLinksetDataRead(llGetSubString(param, 1, -1));
-    else
-        result = (integer)param;
-    return result;
-}
-
-key getKeyParameter(string parameter)
-{
-    key result;
-    string param = llJsonGetValue(_currentTaskData, [parameter]);
-    if(llGetSubString(param, 0, 0) == "$")
-        result = (key)llLinksetDataRead(llGetSubString(param, 1, -1));
-    else
-        result = (key)param;
-    return result;
-}
-
-float getFloatParameter(string parameter)
-{
-    float result;
-    string param = llJsonGetValue(_currentTaskData, [parameter]);
-    if(llGetSubString(param, 0, 0) == "$")
-        result = (float)llLinksetDataRead(llGetSubString(param, 1, -1));
-    else
-        result = (float)param;
-    return result;
+    return result + param;
 }
 
 log(string msg) { if(_activeTestState != TESTSTATE_IDLE) llOwnerSay("[V's Tester] [" + (string)_tests[_activeTest] + "] " + msg); else llOwnerSay("[V's Tester] " + msg); }
@@ -450,14 +427,14 @@ loadNextTask()
 
 list getTaskActions()
 {
-    list actions = llJson2List(llJsonGetValue(llLinksetDataRead("ACTIONS_" + (string)_tests[_activeTest]), ["actions"]));
+    list actions = llJson2List(llJsonGetValue(llLinksetDataRead("A_" + (string)_tests[_activeTest]), ["a"]));
     integer i;
     integer len = llGetListLength(actions);
     for(i = 0; i < len; i++)
     {
         string action = (string)actions[i];
         if(llJsonValueType(action, []) != JSON_OBJECT)
-            actions = llListReplaceList(actions, [llLinksetDataRead("COMMON_" + action)], i, i);
+            actions = llListReplaceList(actions, [llLinksetDataRead("C_" + action)], i, i);
     }
     return actions;
 }
@@ -502,7 +479,7 @@ default
         integer lsdAvailable = llLinksetDataAvailable();
 
         log("Memory Used: " + (string)memused + "\nMemory Free: " + (string)memfree + "\nMemory Limit: " + (string)memmax + "\nPercentage of Memory Usage: " + (string)memperc + "%");
-        log("Linkset data available: " + (string)lsdAvailable + " / 131072 (" + (string)((integer)(100 * (float)lsdAvailable/131072)) + "%)");
+        log("LSD available: " + (string)lsdAvailable + " / 131072 (" + (string)((integer)(100 * (float)lsdAvailable/131072)) + "%)");
 
         log("Ready to start. Touch this object to start the test suite.");
     }
@@ -540,7 +517,7 @@ state report
     touch_end(integer num_detected)
     {
         _touch = 0;
-        list testData = llLinksetDataFindKeys("TEST_RESULT_", 0, 0);
+        list testData = llLinksetDataFindKeys("R_", 0, 0);
         integer i;
         integer len = llGetListLength(testData);
         for(i = 0; i < len; i++)
@@ -598,8 +575,8 @@ state load_next_test
         {
             string testName = (string)_tests[_activeTest];
             logVerbose("Loading data for test: \"" + testName + "\".");
-            string testJson = llLinksetDataRead("ACTIONS_" + testName);
-            list dependencies = llJson2List(llJsonGetValue(testJson, ["deps"]));
+            string testJson = llLinksetDataRead("A_" + testName);
+            list dependencies = llJson2List(llJsonGetValue(testJson, ["d"]));
             list actions = getTaskActions();
             logVerbose("Dependencies: " + llDumpList2String(dependencies, ", "));
             if(dependencies)
@@ -608,7 +585,7 @@ state load_next_test
                 integer len = llGetListLength(dependencies);
                 for(i = 0; i < len; i++)
                 {
-                    string dependencyTestResult = llLinksetDataRead("TEST_RESULT_" + (string)dependencies[i]);
+                    string dependencyTestResult = llLinksetDataRead("R_" + (string)dependencies[i]);
                     if(llJsonGetValue(dependencyTestResult, ["r"]) != "Success")
                     {
                         string testResult = llJsonSetValue("{}", ["n"], (string)_tests[_activeTest]);
@@ -624,7 +601,7 @@ state load_next_test
                             testResult = llJsonSetValue(testResult, ["t", JSON_APPEND], taskResult);
                         }
 
-                        llLinksetDataWrite("TEST_RESULT_" + (string)_tests[_activeTest], testResult);
+                        llLinksetDataWrite("R_" + (string)_tests[_activeTest], testResult);
                         logInfo("Skipping test \"" + testName + "\" because dependencies are not met.");
                         jump advanceTest;
                     }
@@ -741,7 +718,7 @@ state run_test
             testResult = llJsonSetValue(testResult, ["t", JSON_APPEND], taskResult);
         }
 
-        llLinksetDataWrite("TEST_RESULT_" + (string)_tests[_activeTest], testResult);
+        llLinksetDataWrite("R_" + (string)_tests[_activeTest], testResult);
     }
 
     listen(integer channel, string name, key id, string message)
@@ -787,10 +764,10 @@ state run_test
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                string name = getStringParameter(ACTION_1STPARAM);
+                string name = getParameter(ACTION_1STPARAM);
                 if(llLinksetDataRead(name))
                 {
-                    logInfo("Unable to rez with name \"" + name + "\" as a placeholder with that name already exists. Test will be marked failed.");
+                    logInfo("Unable to rez with name \"" + name + "\" as a placeholder with that name already exists.");
                     _currentTaskFailureMessage = "Placeholder with name \"" + name + "\" already exists.";
                     _currentTaskState = TASKSTATE_FAILURE;
                 }
@@ -799,7 +776,7 @@ state run_test
                     if(currentActionType == BOOST_PP_STRINGIZE(ACTION_REZ))
                     {
                         vector myPos = llGetPos();
-                        vector forwardOffset = <getFloatParameter(ACTION_2NDPARAM), 0.0, 0.0>; // Place the rezzed object x meters away based on the parameters of REZ
+                        vector forwardOffset = <(float)getParameter(ACTION_2NDPARAM), 0.0, 0.0>; // Place the rezzed object x meters away based on the parameters of REZ
                         vector targetPos = myPos + (forwardOffset * llGetRot());
 
                         list ray = llCastRay(targetPos + <0,0,1>, targetPos - <0,0,4>, [RC_REJECT_TYPES, RC_REJECT_AGENTS]);
@@ -828,7 +805,7 @@ state run_test
             {
                 if(llGetTime() - _rezTime > 10.0)
                 {
-                    logInfo("Didn't get a rez event yet, did the rez/attach fail? Test marked as failed.");
+                    logInfo("Didn't get a rez event yet, did the rez/attach fail?");
                     _currentTaskFailureMessage = "No rez event raised";
                     _currentTaskState = TASKSTATE_FAILURE;
                 }
@@ -846,7 +823,7 @@ state run_test
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                string message = getStringParameter(ACTION_1STPARAM);
+                string message = getParameter(ACTION_1STPARAM);
 #if ASK_TYPE == ASK_TYPE_CHAT
                 llOwnerSay(message + " [secondlife:///app/chat/" + (string)TEST_CHANNEL + "/" + ASK_YES + " " + ASK_YES + "] or [secondlife:///app/chat/" + (string)TEST_CHANNEL + "/" + ASK_NO + " " + ASK_NO + "]");
 #elif ASK_TYPE == ASK_TYPE_DIALOG
@@ -861,7 +838,7 @@ state run_test
             {
                 if(llGetTime() - _askTime > 10.0)
                 {
-                    logInfo("Did not get a reply from user within 10 seconds, moving to next test.");
+                    logInfo("Did not get a reply from user within 10 seconds.");
                     _currentTaskFailureMessage = "No reply from user";
                     _currentTaskState = TASKSTATE_FAILURE;
                 }
@@ -879,14 +856,14 @@ state run_test
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                key target = getKeyParameter(ACTION_1STPARAM);
-                integer channel = getIntegerParameter(ACTION_2NDPARAM);
-                string message = replaceAllPlaceholders(getStringParameter(ACTION_3RDPARAM));
+                key target = (key)getParameter(ACTION_1STPARAM);
+                integer channel = (integer)getParameter(ACTION_2NDPARAM);
+                string message = getParameter(ACTION_3RDPARAM);
 
                 if(target == NULL_KEY)
                 {
                     _currentTaskState = TASKSTATE_FAILURE;
-                    _currentTaskFailureMessage = "Target key was NULL_KEY, this is not a valid target for SEND";
+                    _currentTaskFailureMessage = "Target key was NULL_KEY.";
                 }
                 else
                 {
@@ -910,20 +887,20 @@ state run_test
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                key target = getKeyParameter(ACTION_1STPARAM);
-                integer channel = getIntegerParameter(ACTION_2NDPARAM);
-                string message = replaceAllPlaceholders(getStringParameter(ACTION_3RDPARAM));
-                integer type = getIntegerParameter(ACTION_4THPARAM);
+                key target = (key)getParameter(ACTION_1STPARAM);
+                integer channel = (integer)getParameter(ACTION_2NDPARAM);
+                string message = getParameter(ACTION_3RDPARAM);
+                integer type = (integer)getParameter(ACTION_4THPARAM);
 
                 if(target == NULL_KEY)
                 {
                     _currentTaskState = TASKSTATE_FAILURE;
-                    _currentTaskFailureMessage = "Target key was NULL_KEY, this is not a valid target for RELAY";
+                    _currentTaskFailureMessage = "Target key was NULL_KEY.";
                 }
                 else if(type != RELAY_TYPE_REGIONSAYTO && type != RELAY_TYPE_SAY && type != RELAY_TYPE_WHISPER && type != RELAY_TYPE_SHOUT)
                 {
                     _currentTaskState = TASKSTATE_FAILURE;
-                    _currentTaskFailureMessage = "Invalid value type \"" + (string)type + "\" specified. Valid types are: " + (string)RELAY_TYPE_REGIONSAYTO + "," + (string)RELAY_TYPE_SAY + "," + (string)RELAY_TYPE_WHISPER + "," + (string)RELAY_TYPE_SHOUT;
+                    _currentTaskFailureMessage = "Invalid value type \"" + (string)type + "\" specified.";
                     return;
                 }
                 else
@@ -947,10 +924,10 @@ state run_test
         {
             if(_currentTaskState == TASKSTATE_IDLE || _currentTaskState == TASKSTATE_WAITING)
             {
-                integer channel = getIntegerParameter(ACTION_1STPARAM);
-                string value = replaceAllPlaceholders(getStringParameter(ACTION_2NDPARAM));
-                integer time = getIntegerParameter(ACTION_3RDPARAM);
-                integer type = getIntegerParameter(ACTION_4THPARAM);
+                integer channel = (integer)getParameter(ACTION_1STPARAM);
+                string value = getParameter(ACTION_2NDPARAM);
+                integer time = (integer)getParameter(ACTION_3RDPARAM);
+                integer type = (integer)getParameter(ACTION_4THPARAM);
 
                 float timeToCheck = 0;
 
