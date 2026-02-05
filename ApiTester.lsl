@@ -156,7 +156,9 @@
 // They follow the same pattern as actions in the TEST_DATA macro, where the name is the key of the function. I recommend making macros for the keys so you can easily use them without typos.
 // These functions usually correspond to stand alone tests, where those tests then become dependencies of future tests.
 // For example: Your API requires a script to announce itself first before it will accept a command from the script, rather than writing the full ACTION_SEND to authenticate as part of the test data simply define it once here and use it in place of an action.
-#define COMMON_ACTIONS
+#define COMMON_ACTIONS \
+    ((COMMON_REZ_DUMMY, "Rez dummy", ACTION_REZ, "DUMMY", 2.5)) /* Rezzes a dummy with the name DUMMY as placeholder at 2.5m distance */ \
+    ((COMMON_ATTACH_DUMMY, "Attach dummy", ACTION_ATTACH, "ATTACH")) /* Attaches a dummy with the name ATTACH as placeholder */
 
 // Add a new llLinksetDataWrite for every placeholder you want to add, you can always call a function as well if something is especially complex to calculate.
 // Where applicable you can insert these placeholder values by prefixing its name with a $ symbol.
@@ -167,7 +169,8 @@
 //         llLinksetDataWrite("IB", (string)(-1 - (integer)("0x" + llGetSubString((string)llGetOwner(), -7, -1)) + 5515));
 //
 // Note: the LSD is wiped on every rez and re-filled during initialization of the tester.
-#define SETUPPLACEHOLDERS()
+#define SETUPPLACEHOLDERS() \
+        llLinksetDataWrite("AV", llGetOwner());
 
 // Tip: Rather than define all of your tests in this script and keep copies of this entire script around, simply make them in a separate file and #include <yourtests.lsl>.
 // Just #define TEST_DATA, #define COMMON_ACTIONS and #define SETUPPLACEHOLDERS() in there, make sure to #undef the macros in there or comment them out here!
@@ -465,6 +468,7 @@ saveRezzedDummy(key id)
     logVerbose("Saving placeholder \"" + dummyName + "\" with value: \"" + (string)id + "\".");
     llLinksetDataWrite(dummyName, id); // Save the rezzed object in LSD so it can be used as a placeholder
     llRegionSayTo(id, TEST_CHANNEL, RELAY_COMMAND_INIT + " " + dummyName);
+    _rezzedDummies += [dummyName + ":" + (string)id];
     _currentTaskState = TASKSTATE_SUCCESS;
 }
 
@@ -700,7 +704,11 @@ state run_test
         {
             len = llGetListLength(_rezzedDummies);
             for(i = 0; i < len; i++)
-                llRegionSayTo((key)_rezzedDummies[i], TEST_CHANNEL, RELAY_COMMAND_DIE);
+            {
+                list parts = llParseString2List((string)_rezzedDummies[i], [":"], []);
+                llRegionSayTo((key)parts[1], TEST_CHANNEL, RELAY_COMMAND_DIE);
+                llLinksetDataDelete((string)parts[0]);
+            }
             
             _rezzedDummies = [];
         }
@@ -763,8 +771,6 @@ state run_test
 
     object_rez(key id)
     {
-        _rezzedDummies += [id];
-
         if(llJsonGetValue(_currentTaskData, ["a"]) == BOOST_PP_STRINGIZE(ACTION_REZ)) // ATTACH will send a message when it attaches
             saveRezzedDummy(id);
         else
@@ -954,7 +960,10 @@ state run_test
                     timeToCheck = _relayTime;
 
                 if((timeToCheck + time) > llGetTime())
+                {
+                    _currentTaskFailureMessage = "Unable to find \"" + value + "\" among messages received.";
                     _currentTaskState = TASKSTATE_FAILURE;
+                }
 
                 integer i;
                 integer len = llGetListLength(_receivedMessage);
