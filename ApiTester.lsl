@@ -1,17 +1,3 @@
-#include <boost/preprocessor/iteration/local.hpp>
-#include <boost/preprocessor/stringize.hpp>
-#include <boost/preprocessor/seq/for_each_i.hpp>
-#include <boost/preprocessor/seq/for_each.hpp>
-#include <boost/preprocessor/tuple/elem.hpp>
-#include <boost/preprocessor/punctuation/comma_if.hpp>
-#include <boost/preprocessor/control/if.hpp>
-#include <boost/preprocessor/control/iif.hpp>
-#include <boost/preprocessor/comparison/equal.hpp>
-#include <boost/preprocessor/tuple/size.hpp>
-#include <boost/preprocessor/tuple/pop_front.hpp>
-#include <boost/preprocessor/tuple/enum.hpp>
-#include <boost/preprocessor/cat.hpp>
-
 // ####################################################################################
 // -- Changelog, tester information, readme, and instructions to create a new tester --
 // ####################################################################################
@@ -248,6 +234,17 @@
         llLinksetDataWrite("AV", llGetOwner());
 
 // -- Start of preprocessor macros
+
+#include <boost/preprocessor/seq/for_each_i.hpp>
+#include <boost/preprocessor/seq/for_each.hpp>
+#include <boost/preprocessor/tuple/elem.hpp>
+#include <boost/preprocessor/punctuation/comma_if.hpp>
+#include <boost/preprocessor/control/if.hpp>
+#include <boost/preprocessor/control/iif.hpp>
+#include <boost/preprocessor/comparison/equal.hpp>
+#include <boost/preprocessor/tuple/size.hpp>
+#include <boost/preprocessor/tuple/pop_front.hpp>
+#include <boost/preprocessor/cat.hpp>
 
 // Helpers
 #define _ ""
