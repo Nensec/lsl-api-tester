@@ -5,9 +5,12 @@
 #include <boost/preprocessor/tuple/elem.hpp>
 #include <boost/preprocessor/punctuation/comma_if.hpp>
 #include <boost/preprocessor/control/if.hpp>
+#include <boost/preprocessor/control/iif.hpp>
 #include <boost/preprocessor/comparison/equal.hpp>
 #include <boost/preprocessor/tuple/size.hpp>
 #include <boost/preprocessor/tuple/pop_front.hpp>
+#include <boost/preprocessor/tuple/enum.hpp>
+#include <boost/preprocessor/cat.hpp>
 
 // ####################################################################################
 // -- Changelog, tester information, readme, and instructions to create a new tester --
@@ -149,32 +152,36 @@
 //      RELAY_TYPE_WHISPER: llWhisper
 //      RELAY_TYPE_SHOUT: llShout
 //
-//
 #define TEST_DATA 
 
 // Define common functions that are required in many tests, this will save on script memory because these will only be generated once.
 // They follow the same pattern as actions in the TEST_DATA macro, where the name is the key of the function. I recommend making macros for the keys so you can easily use them without typos.
 // These functions usually correspond to stand alone tests, where those tests then become dependencies of future tests.
 // For example: Your API requires a script to announce itself first before it will accept a command from the script, rather than writing the full ACTION_SEND to authenticate as part of the test data simply define it once here and use it in place of an action.
-#define COMMON_ACTIONS \
-    ((COMMON_REZ_DUMMY, "Rez dummy", ACTION_REZ, "DUMMY", 2.5)) /* Rezzes a dummy with the name DUMMY as placeholder at 2.5m distance */ \
-    ((COMMON_ATTACH_DUMMY, "Attach dummy", ACTION_ATTACH, "ATTACH")) /* Attaches a dummy with the name ATTACH as placeholder */
+// A set of default common actions is available in DEFAULT_COMMON_ACTIONS. You can completely omit these if you do not use them.
+//
+// Example:
+// #define COMMON_ACTIONS \
+//         ((COMMON_REZ_DUMMY, "Rez dummy", ACTION_REZ, "DUMMY", 2.5)) /* Rezzes a dummy with the name DUMMY as placeholder at 2.5m distance */ \
+//         ((COMMON_ATTACH_DUMMY, "Attach dummy", ACTION_ATTACH, "ATTACH")) /* Attaches a dummy with the name ATTACH as placeholder */
+//
+#define COMMON_ACTIONS DEFAULT_COMMON_ACTIONS
 
 // Add a new llLinksetDataWrite for every placeholder you want to add, you can always call a function as well if something is especially complex to calculate.
 // Where applicable you can insert these placeholder values by prefixing its name with a $ symbol.
+// A set of default placeholders  is available in DEFAULT_PLACEHOLDERS. You can completely omit these if you do not use them.
 //
 // Example:
-// #define SETUPPLACEHOLDERS() \
+// #define SETUPPLACEHOLDERS \
 //         llLinksetDataWrite("AV", llGetOwner()); \
-//         llLinksetDataWrite("IB", (string)(-1 - (integer)("0x" + llGetSubString((string)llGetOwner(), -7, -1)) + 5515));
 //
 // Note: the LSD is wiped on every rez and re-filled during initialization of the tester.
-#define SETUPPLACEHOLDERS() \
-        llLinksetDataWrite("AV", llGetOwner());
+#define SETUPPLACEHOLDERS DEFAULT_PLACEHOLDERS
 
 // Tip: Rather than define all of your tests in this script and keep copies of this entire script around, simply make them in a separate file and #include <yourtests.lsl>.
-// Just #define TEST_DATA, #define COMMON_ACTIONS and #define SETUPPLACEHOLDERS() in there, make sure to #undef the macros in there or comment them out here!
+// Just #define TEST_DATA, #define COMMON_ACTIONS and #define SETUPPLACEHOLDERS in there, make sure to #undef the macros in here or comment them out here!
 // That way you only need to change one line of code to change your entire test suite!
+// Note: When overriding do not forget to include the DEFAULT_COMMON_ACTIONS and DEFAULT_PLACEHOLDERS if you use them!
 
 // ####################################################################################
 // -- Below here should not be edited by the user unless you know what you are doing --
@@ -199,12 +206,12 @@
 #define TASKSTATE_FAILURE 2
 #define TASKSTATE_WAITING 3
 
-#define ACTION_SEND SEND
-#define ACTION_ASK ASK
-#define ACTION_REZ REZ
-#define ACTION_EXPECT EXPECT
-#define ACTION_RELAY RELAY
-#define ACTION_ATTACH ATTACH
+#define ACTION_SEND 0
+#define ACTION_ASK 1
+#define ACTION_REZ 2
+#define ACTION_EXPECT 3
+#define ACTION_RELAY 4
+#define ACTION_ATTACH 5
 
 #define ASK_YES "Yes"
 #define ASK_NO "No"
@@ -230,6 +237,16 @@
 #define EXPECT_TYPE_SEND 1
 #define EXPECT_TYPE_RELAY 2
 
+#define COMMON_REZ_DUMMY REZ_DUMMY
+#define COMMON_ATTACH_DUMMY ATTACH_DUMMY
+
+#define DEFAULT_COMMON_ACTIONS \
+    ((COMMON_REZ_DUMMY, "Rez dummy", ACTION_REZ, "DUMMY", 2.5)) /* Rezzes a dummy with the name DUMMY as placeholder at 2.5m distance */ \
+    ((COMMON_ATTACH_DUMMY, "Attach dummy", ACTION_ATTACH, "ATTACH")) /* Attaches a dummy with the name ATTACH as placeholder */
+
+#define DEFAULT_PLACEHOLDERS \
+        llLinksetDataWrite("AV", llGetOwner());
+
 // -- Start of preprocessor macros
 
 // Helpers
@@ -237,23 +254,14 @@
 #define GLUE_STR(...) #__VA_ARGS__
 #define DEFER_STR(...) GLUE_STR(__VA_ARGS__)
 
-#define GET_TEST_NAME(r, data, i, elem) BOOST_PP_COMMA_IF(i) BOOST_PP_TUPLE_ELEM(0, elem)
+#define GET_TEST_NAME(r, data, i, elem) BOOST_PP_COMMA_IF(i) DEFER_STR(BOOST_PP_TUPLE_ELEM(0, elem))
 
 // Create JSON
-#define MAKE_JSON_ONE_PARAM(name, action, p1) {"n":name,"a":GLUE_STR(action),"p1":p1}
-#define MAKE_JSON_TWO_PARAM(name, action, p1, p2) {"n":name,"a":GLUE_STR(action),"p1":p1,"p2":p2}
-#define MAKE_JSON_THREE_PARAM(name, action, p1, p2, p3) {"n":name,"a":GLUE_STR(action),"p1":p1,"p2":p2,"p3":p3}
-#define MAKE_JSON_FOUR_PARAM(name, action, p1, p2, p3, p4) {"n":name,"a":GLUE_STR(action),"p1":p1,"p2":p2,"p3":p3,"p4":p4}
-#define MAKE_JSON_REF(name) DEFER_STR(name)
-
 #define BUILD_JSON(r, data, i, elem) \
     BOOST_PP_COMMA_IF(i) \
-    BOOST_PP_IF( \
-        BOOST_PP_EQUAL(BOOST_PP_TUPLE_SIZE(elem), 1), \
-        PROCESS_ELEM_REF, \
-        PROCESS_ELEM \
-    )(elem)
+    BOOST_PP_IIF(BOOST_PP_EQUAL(BOOST_PP_TUPLE_SIZE(elem), 1), PROCESS_ELEM_REF, PROCESS_ELEM)(elem)
 
+#define PROCESS_ELEM_REF(elem) DEFER_STR(BOOST_PP_TUPLE_ELEM(0,elem))
 #define PROCESS_ELEM(elem) \
     BOOST_PP_IF( \
         BOOST_PP_EQUAL(BOOST_PP_TUPLE_SIZE(elem), 3), \
@@ -269,49 +277,19 @@
         ) \
     )(elem)
 
-#define PROCESS_ELEM_ONE_PARAM(elem) \
-    MAKE_JSON_ONE_PARAM( \
-        BOOST_PP_TUPLE_ELEM(0, elem), \
-        BOOST_PP_TUPLE_ELEM(1, elem), \
-        BOOST_PP_TUPLE_ELEM(2, elem) \
-    )
+#define PROCESS_ELEM_ONE_PARAM(elem) {"n":BOOST_PP_TUPLE_ELEM(0,elem),"a":BOOST_PP_TUPLE_ELEM(1,elem),"p":[BOOST_PP_TUPLE_ELEM(2,elem)]}
+#define PROCESS_ELEM_TWO_PARAM(elem) {"n":BOOST_PP_TUPLE_ELEM(0,elem),"a":BOOST_PP_TUPLE_ELEM(1,elem),"p":[BOOST_PP_TUPLE_ELEM(2,elem),BOOST_PP_TUPLE_ELEM(3,elem)]}
+#define PROCESS_ELEM_THREE_PARAM(elem) {"n":BOOST_PP_TUPLE_ELEM(0,elem),"a":BOOST_PP_TUPLE_ELEM(1,elem),"p":[BOOST_PP_TUPLE_ELEM(2,elem),BOOST_PP_TUPLE_ELEM(3,elem),BOOST_PP_TUPLE_ELEM(4,elem)]}
+#define PROCESS_ELEM_FOUR_PARAM(elem) {"n":BOOST_PP_TUPLE_ELEM(0,elem),"a":BOOST_PP_TUPLE_ELEM(1,elem),"p":[BOOST_PP_TUPLE_ELEM(2,elem),BOOST_PP_TUPLE_ELEM(3,elem),BOOST_PP_TUPLE_ELEM(4,elem),BOOST_PP_TUPLE_ELEM(5,elem)]}
 
-#define PROCESS_ELEM_TWO_PARAM(elem) \
-    MAKE_JSON_TWO_PARAM( \
-        BOOST_PP_TUPLE_ELEM(0, elem), \
-        BOOST_PP_TUPLE_ELEM(1, elem), \
-        BOOST_PP_TUPLE_ELEM(2, elem), \
-        BOOST_PP_TUPLE_ELEM(3, elem) \
-    )
-
-#define PROCESS_ELEM_THREE_PARAM(elem) \
-    MAKE_JSON_THREE_PARAM( \
-        BOOST_PP_TUPLE_ELEM(0, elem), \
-        BOOST_PP_TUPLE_ELEM(1, elem), \
-        BOOST_PP_TUPLE_ELEM(2, elem), \
-        BOOST_PP_TUPLE_ELEM(3, elem), \
-        BOOST_PP_TUPLE_ELEM(4, elem) \
-    )
-
-#define PROCESS_ELEM_FOUR_PARAM(elem) \
-    MAKE_JSON_FOUR_PARAM( \
-        BOOST_PP_TUPLE_ELEM(0, elem), \
-        BOOST_PP_TUPLE_ELEM(1, elem), \
-        BOOST_PP_TUPLE_ELEM(2, elem), \
-        BOOST_PP_TUPLE_ELEM(3, elem), \
-        BOOST_PP_TUPLE_ELEM(4, elem), \
-        BOOST_PP_TUPLE_ELEM(5, elem) \
-    )
-
-#define PROCESS_ELEM_REF(elem) \
-    MAKE_JSON_REF(BOOST_PP_TUPLE_ELEM(0, elem))
+#define BUILD_DEPENDENCIES(r, data, i, elem) BOOST_PP_COMMA_IF(i) elem
 
 // Generate LSL
 #define TEST_WRITER(r, data, elem) \
-    llLinksetDataWrite("A_" + BOOST_PP_TUPLE_ELEM(0, elem), "{\"d\":" + llList2Json(JSON_ARRAY, BOOST_PP_TUPLE_ELEM(1, elem)) + ",\"a\":[" + DEFER_STR(BOOST_PP_SEQ_FOR_EACH_I(BUILD_JSON, _, BOOST_PP_TUPLE_ELEM(2, elem))) + "]}");
+    llLinksetDataWrite(DEFER_STR(BOOST_PP_CAT(T_, BOOST_PP_TUPLE_ELEM(0, elem))), DEFER_STR({"d":[BOOST_PP_SEQ_FOR_EACH_I(BUILD_DEPENDENCIES, _, BOOST_PP_TUPLE_ELEM(1, elem))],"a":[BOOST_PP_SEQ_FOR_EACH_I(BUILD_JSON, _, BOOST_PP_TUPLE_ELEM(2, elem))]}));
 
 #define COMMON_ACTION_WRITER(r, data, elem) \
-    llLinksetDataWrite("C_" + DEFER_STR(BOOST_PP_TUPLE_ELEM(0, elem)), DEFER_STR(PROCESS_ELEM(BOOST_PP_TUPLE_POP_FRONT(elem))));
+    llLinksetDataWrite(DEFER_STR(BOOST_PP_CAT(C_, BOOST_PP_TUPLE_ELEM(0, elem))), DEFER_STR(PROCESS_ELEM(BOOST_PP_TUPLE_POP_FRONT(elem))));
 
 // -- End of preprocessor macros
 
@@ -328,6 +306,11 @@ string _currentTaskFailureMessage;
 list _receivedMessage = []; // Strided list of 3: [message, channel, timestamp]
 list _rezzedDummies = []; // All of the dummies rezzed during the current test
 
+string  _p1;
+string  _p2;
+string  _p3;
+string  _p4;
+
 float _rezTime; // When was the last REZ
 float _sendTime; // When was the last SEND
 float _relayTime; // when was the last RELAY
@@ -337,15 +320,15 @@ float _touch;
 
 // -- Helper functions
 
-string getParameter(string parameter)
+string getParameter(string param)
 {
-    string param = llJsonGetValue(_currentTaskData, [parameter]);
     string result = "";
     integer i = llSubStringIndex(param, "$");
 
     while(~i)
     {
-        result += llGetSubString(param, 0, i - 1);
+        if(i != 0)
+            result += llGetSubString(param, 0, i - 1);
         param = llGetSubString(param, i + 1, -1);
 
         integer space = llSubStringIndex(param, " ");
@@ -427,7 +410,7 @@ loadNextTask()
 
 list getTaskActions()
 {
-    list actions = llJson2List(llJsonGetValue(llLinksetDataRead("A_" + (string)_tests[_activeTest]), ["a"]));
+    list actions = llJson2List(llJsonGetValue(llLinksetDataRead("T_" + (string)_tests[_activeTest]), ["a"]));
     integer i;
     integer len = llGetListLength(actions);
     for(i = 0; i < len; i++)
@@ -456,7 +439,7 @@ default
         logInfo("Wiping LSD.");
         llLinksetDataReset();
 
-        SETUPPLACEHOLDERS()
+        SETUPPLACEHOLDERS
 #ifdef VERBOSE
         logVerbose("Placeholders saved in LSD:");
         list keys = llLinksetDataListKeys(0, 0);
@@ -575,7 +558,7 @@ state load_next_test
         {
             string testName = (string)_tests[_activeTest];
             logVerbose("Loading data for test: \"" + testName + "\".");
-            string testJson = llLinksetDataRead("A_" + testName);
+            string testJson = llLinksetDataRead("T_" + testName);
             list dependencies = llJson2List(llJsonGetValue(testJson, ["d"]));
             list actions = getTaskActions();
             logVerbose("Dependencies: " + llDumpList2String(dependencies, ", "));
@@ -631,29 +614,19 @@ state run_test
         llListen(TEST_CHANNEL, _, NULL_KEY, _);
 
         integer i;
-        list channels = [];
         list actions = getTaskActions();
 
         for(i = 0; i < llGetListLength(actions); i++)
         {
-            if(llJsonGetValue((string)actions[i], ["a"]) == BOOST_PP_STRINGIZE(ACTION_EXPECT))
+            string task = llList2String(actions, i);
+            if ((integer)llJsonGetValue(task, ["a"]) == ACTION_EXPECT)
             {
-                integer channel;
-                string param = llJsonGetValue((string)actions[i], [ACTION_1STPARAM]);
-                if(llGetSubString(param, 0, 0) == "$")
-                    channel = (integer)llLinksetDataRead(llGetSubString(param, 1, -1));
-                else
-                    channel = (integer)param;
-
-                if(llListFindList(channels, [channel]) == -1)
-                {
-                    channels += [channel];
-                    llListen(channel, _, NULL_KEY, _);
-                }
+                list taskParams = llJson2List(llJsonGetValue(task, ["p"]));
+                string channel = getParameter((string)taskParams[0]);
+                llListen((integer)channel, _, NULL_KEY, _);
             }
         }
 
-        logVerbose("Listening for messages on channel(s): " + llDumpList2String(channels, ", "));
         logVerbose("Finished initialization. Starting execution of actions.");
 
         _activeTestState = TESTSTATE_RUNNING;
@@ -759,24 +732,29 @@ state run_test
         if(_activeTestState == TESTSTATE_SUCCESS || _activeTestState == TESTSTATE_FAILURE)
             state load_next_test;
 
-        string currentActionType = llJsonGetValue(_currentTaskData, ["a"]);
-        if(currentActionType == BOOST_PP_STRINGIZE(ACTION_REZ) || currentActionType == BOOST_PP_STRINGIZE(ACTION_ATTACH))
+        list params = llJson2List(llJsonGetValue(_currentTaskData, ["p"]));
+        _p1 = getParameter((string)params[0]);
+        _p2 = getParameter((string)params[1]);
+        _p3 = getParameter((string)params[2]);
+        _p4 = getParameter((string)params[3]);
+
+        integer currentActionType = (integer)llJsonGetValue(_currentTaskData, ["a"]);
+        if(currentActionType == ACTION_REZ || currentActionType == ACTION_ATTACH)
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                string name = getParameter(ACTION_1STPARAM);
-                if(llLinksetDataRead(name))
+                if(llLinksetDataRead(_p1))
                 {
-                    logInfo("Unable to rez with name \"" + name + "\" as a placeholder with that name already exists.");
-                    _currentTaskFailureMessage = "Placeholder with name \"" + name + "\" already exists.";
+                    logInfo("Unable to rez with name \"" + _p1 + "\" as a placeholder with that name already exists.");
+                    _currentTaskFailureMessage = "Placeholder with name \"" + _p1 + "\" already exists.";
                     _currentTaskState = TASKSTATE_FAILURE;
                 }
                 else
                 {
-                    if(currentActionType == BOOST_PP_STRINGIZE(ACTION_REZ))
+                    if(currentActionType == ACTION_REZ)
                     {
                         vector myPos = llGetPos();
-                        vector forwardOffset = <(float)getParameter(ACTION_2NDPARAM), 0.0, 0.0>; // Place the rezzed object x meters away based on the parameters of REZ
+                        vector forwardOffset = <(float)_p2, 0.0, 0.0>; // Place the rezzed object x meters away based on the parameters of REZ
                         vector targetPos = myPos + (forwardOffset * llGetRot());
 
                         list ray = llCastRay(targetPos + <0,0,1>, targetPos - <0,0,4>, [RC_REJECT_TYPES, RC_REJECT_AGENTS]);
@@ -794,7 +772,7 @@ state run_test
 
                         llRezObject(DUMMY_OBJECT, targetPos, ZERO_VECTOR, correction * flatRot, TEST_CHANNEL);
                     }
-                    else if(currentActionType == BOOST_PP_STRINGIZE(ACTION_ATTACH))
+                    else if(currentActionType == ACTION_ATTACH)
                         llRezObject(DUMMY_ATTACH, llGetPos() + <1,0,0>, ZERO_VECTOR, ZERO_ROTATION, TEST_CHANNEL);
 
                     _rezTime = llGetTime();
@@ -819,15 +797,14 @@ state run_test
             else if(_currentTaskState == TASKSTATE_SUCCESS)
                 loadNextTask();
         }
-        else if(currentActionType == BOOST_PP_STRINGIZE(ACTION_ASK))
+        else if(currentActionType == ACTION_ASK)
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                string message = getParameter(ACTION_1STPARAM);
 #if ASK_TYPE == ASK_TYPE_CHAT
-                llOwnerSay(message + " [secondlife:///app/chat/" + (string)TEST_CHANNEL + "/" + ASK_YES + " " + ASK_YES + "] or [secondlife:///app/chat/" + (string)TEST_CHANNEL + "/" + ASK_NO + " " + ASK_NO + "]");
+                llOwnerSay(_p1 + " [secondlife:///app/chat/" + (string)TEST_CHANNEL + "/" + ASK_YES + " " + ASK_YES + "] or [secondlife:///app/chat/" + (string)TEST_CHANNEL + "/" + ASK_NO + " " + ASK_NO + "]");
 #elif ASK_TYPE == ASK_TYPE_DIALOG
-                llDialog(llGetOwner(), message, [ASK_YES, ASK_NO], TEST_CHANNEL);
+                llDialog(llGetOwner(), _p1, [ASK_YES, ASK_NO], TEST_CHANNEL);
 #else
 #error "Invalid configuration for ASK_TYPE"
 #endif
@@ -852,24 +829,20 @@ state run_test
             else if(_currentTaskState == TASKSTATE_SUCCESS)
                 loadNextTask();
         }
-        else if(currentActionType == BOOST_PP_STRINGIZE(ACTION_SEND))
+        else if(currentActionType == ACTION_SEND)
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                key target = (key)getParameter(ACTION_1STPARAM);
-                integer channel = (integer)getParameter(ACTION_2NDPARAM);
-                string message = getParameter(ACTION_3RDPARAM);
-
-                if(target == NULL_KEY)
+                if((key)_p1 == NULL_KEY)
                 {
                     _currentTaskState = TASKSTATE_FAILURE;
                     _currentTaskFailureMessage = "Target key was NULL_KEY.";
                 }
                 else
                 {
-                    logVerbose("Sending: \"" + message + "\" on channel: \"" + (string)channel + "\"");
+                    logVerbose("Sending: \"" + _p1 + "\" on channel: \"" + _p2 + "\"");
 
-                    llRegionSayTo(target, channel, message);
+                    llRegionSayTo((key)_p1, (integer)_p2, _p3);
                     _sendTime = llGetTime();
                     _currentTaskState = TASKSTATE_SUCCESS;
                 }
@@ -883,30 +856,25 @@ state run_test
             else if(_currentTaskState == TASKSTATE_SUCCESS)
                 loadNextTask();
         }
-        else if(currentActionType == BOOST_PP_STRINGIZE(ACTION_RELAY))
+        else if(currentActionType == ACTION_RELAY)
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                key target = (key)getParameter(ACTION_1STPARAM);
-                integer channel = (integer)getParameter(ACTION_2NDPARAM);
-                string message = getParameter(ACTION_3RDPARAM);
-                integer type = (integer)getParameter(ACTION_4THPARAM);
-
-                if(target == NULL_KEY)
+                if((key)_p1 == NULL_KEY)
                 {
                     _currentTaskState = TASKSTATE_FAILURE;
                     _currentTaskFailureMessage = "Target key was NULL_KEY.";
                 }
-                else if(type != RELAY_TYPE_REGIONSAYTO && type != RELAY_TYPE_SAY && type != RELAY_TYPE_WHISPER && type != RELAY_TYPE_SHOUT)
+                else if((integer)_p4 != RELAY_TYPE_REGIONSAYTO && (integer)_p4 != RELAY_TYPE_SAY && (integer)_p4 != RELAY_TYPE_WHISPER && (integer)_p4 != RELAY_TYPE_SHOUT)
                 {
                     _currentTaskState = TASKSTATE_FAILURE;
-                    _currentTaskFailureMessage = "Invalid value type \"" + (string)type + "\" specified.";
+                    _currentTaskFailureMessage = "Invalid value type \"" + _p4 + "\" specified.";
                     return;
                 }
                 else
                 {
-                    logVerbose("Sending message of type: " + (string)type + " to be send on channel: " + (string)channel + " message: " + message);
-                    llRegionSayTo(target, TEST_CHANNEL, RELAY_COMMAND_RELAY + " " + (string)type + " " + (string)channel + " " + message);
+                    logVerbose("Sending message of type: " + _p4 + " to be send on channel: " + _p2 + " message: " + _p3);
+                    llRegionSayTo((key)_p1, TEST_CHANNEL, RELAY_COMMAND_RELAY + " " + _p4 + " " + _p2 + " " + _p3);
                     _relayTime = llGetTime();
                     _currentTaskState = TASKSTATE_SUCCESS;
                 }
@@ -920,25 +888,20 @@ state run_test
             else if(_currentTaskState == TASKSTATE_SUCCESS)
                 loadNextTask();
         }
-        else if(currentActionType == BOOST_PP_STRINGIZE(ACTION_EXPECT))
+        else if(currentActionType == ACTION_EXPECT)
         {
             if(_currentTaskState == TASKSTATE_IDLE || _currentTaskState == TASKSTATE_WAITING)
             {
-                integer channel = (integer)getParameter(ACTION_1STPARAM);
-                string value = getParameter(ACTION_2NDPARAM);
-                integer time = (integer)getParameter(ACTION_3RDPARAM);
-                integer type = (integer)getParameter(ACTION_4THPARAM);
-
                 float timeToCheck = 0;
 
-                if(type == EXPECT_TYPE_SEND)
+                if((integer)_p4 == EXPECT_TYPE_SEND)
                     timeToCheck = _sendTime;
-                else if(type == EXPECT_TYPE_RELAY)
+                else if((integer)_p4 == EXPECT_TYPE_RELAY)
                     timeToCheck = _relayTime;
 
-                if((timeToCheck + time) > llGetTime())
+                if((timeToCheck + (integer)_p3) > llGetTime())
                 {
-                    _currentTaskFailureMessage = "Unable to find \"" + value + "\" among messages received.";
+                    _currentTaskFailureMessage = "Unable to find \"" + _p2 + "\" among messages received.";
                     _currentTaskState = TASKSTATE_FAILURE;
                 }
 
@@ -949,10 +912,10 @@ state run_test
                 {
                     if((float)_receivedMessage[i + 2] > timeToCheck)
                     {
-                        if((integer)_receivedMessage[i + 1] == channel)
+                        if((integer)_receivedMessage[i + 1] == (integer)_p1)
                         {
                             string message = (string)_receivedMessage[i];
-                            string compare = value;
+                            string compare = _p2;
                             if(llSubStringIndex(compare, "*") != -1)
                             {
                                 message = llGetSubString(message, 0, llSubStringIndex(compare, "*") - 1);
