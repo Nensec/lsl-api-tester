@@ -699,7 +699,7 @@ state run_test
         logListener(message, channel, llGetTime());
         if(channel == TEST_CHANNEL)
         {
-            if(llJsonGetValue(_currentTaskData, ["a"]) == BOOST_PP_STRINGIZE(ACTION_ASK))
+            if((integer)llJsonGetValue(_currentTaskData, ["a"]) == ACTION_ASK)
             {
                 if(message == ASK_YES)
                     _currentTaskState = TASKSTATE_SUCCESS;
@@ -709,7 +709,7 @@ state run_test
                 logVerbose("ASK result: Got \"" + message + "\".");
                 return;
             }
-            else if(llJsonGetValue(_currentTaskData, ["a"]) == BOOST_PP_STRINGIZE(ACTION_ATTACH))
+            else if((integer)llJsonGetValue(_currentTaskData, ["a"]) == ACTION_ATTACH)
             {
                 saveRezzedDummy(id);
                 return;
@@ -721,7 +721,7 @@ state run_test
 
     object_rez(key id)
     {
-        if(llJsonGetValue(_currentTaskData, ["a"]) == BOOST_PP_STRINGIZE(ACTION_REZ)) // ATTACH will send a message when it attaches
+        if((integer)llJsonGetValue(_currentTaskData, ["a"]) == ACTION_REZ) // ATTACH will send a message when it attaches
             saveRezzedDummy(id);
         else
             llRegionSayTo(id, TEST_CHANNEL, RELAY_COMMAND_ATTACH + " " + (string)DUMMY_ATTACH_POINT);
