@@ -47,13 +47,14 @@
 // Turn off which logging you do not want by commenting out the log level. Turning all off will result in only the test result to be output.
 // Turning off logging will help a lot in script memory, it is recommended to only turn on logging when you are experiencing problems and when you do turn off irrelevant tests by commenting them out.
 // Logging adds a lot of memory!
-//#define INFO
-//#define VERBOSE
+#define INFO
+#define VERBOSE
 //#define LISTENER // This will dump all content you receive from listeners you have specified in EXPECT's in a test, it can be very spammy depending on how much chatter you have on your channel(s)!
 
 // Tester configuration
 #define TESTER_MODE TESTER_MODE_LOCAL // Run the script locally (TESTER_MODE_LOCAL) in just this script or use a runner script (TESTER_MODE_RUNNER) that contains all the logic, this will save on memory but uses link messages to control the test flow.
-
+#define LOAD_LOCAL_TESTS TRUE // Loads tests locally defined using the Boost preprocessor, if set to FALSE will not require Boost at all to be installed
+#define LOAD_NOTECARDS_TESTS TRUE // Attempts to load JSON notecards with test data
 #define TEST_CHANNEL -8378464 // This is the channel that the tests and relay communicate on, all listeners are filtered by owner avatar id.
 
 #define ASK_TYPE ASK_TYPE_DIALOG // Should the ASK action request a reply in a clickable chat message (ASK_TYPE_CHAT), or should it show a dialog with buttons (ASK_TYPE_DIALOG)?
@@ -138,8 +139,9 @@
 //      RELAY_TYPE_WHISPER: llWhisper
 //      RELAY_TYPE_SHOUT: llShout
 //
+#if LOAD_LOCAL_TESTS==TRUE
 #define TEST_DATA 
-
+#endif
 // Define common functions that are required in many tests, this will save on script memory because these will only be generated once.
 // They follow the same pattern as actions in the TEST_DATA macro, where the name is the key of the function. I recommend making macros for the keys so you can easily use them without typos.
 // These functions usually correspond to stand alone tests, where those tests then become dependencies of future tests.
@@ -151,8 +153,9 @@
 //         ((COMMON_REZ_DUMMY, "Rez dummy", ACTION_REZ, "DUMMY", 2.5)) /* Rezzes a dummy with the name DUMMY as placeholder at 2.5m distance */ \
 //         ((COMMON_ATTACH_DUMMY, "Attach dummy", ACTION_ATTACH, "ATTACH")) /* Attaches a dummy with the name ATTACH as placeholder */
 //
+#if LOAD_LOCAL_TESTS==TRUE
 #define COMMON_ACTIONS DEFAULT_COMMON_ACTIONS
-
+#endif
 // Add a new llLinksetDataWrite for every placeholder you want to add, you can always call a function as well if something is especially complex to calculate.
 // Where applicable you can insert these placeholder values by prefixing its name with a $ symbol.
 // A set of default placeholders  is available in DEFAULT_PLACEHOLDERS. You can completely omit these if you do not use them.
@@ -204,12 +207,6 @@
 #define ASK_TYPE_CHAT 0
 #define ASK_TYPE_DIALOG 1
 
-#define ACTION_TYPEPARAM "a"
-#define ACTION_1STPARAM "p1"
-#define ACTION_2NDPARAM "p2"
-#define ACTION_3RDPARAM "p3"
-#define ACTION_4THPARAM "p4"
-
 #define RELAY_COMMAND_DIE "die"
 #define RELAY_COMMAND_INIT "init"
 #define RELAY_COMMAND_RELAY "relay"
@@ -226,15 +223,12 @@
 #define COMMON_REZ_DUMMY REZ_DUMMY
 #define COMMON_ATTACH_DUMMY ATTACH_DUMMY
 
-#define DEFAULT_COMMON_ACTIONS \
-    ((COMMON_REZ_DUMMY, "Rez dummy", ACTION_REZ, "DUMMY", 2.5)) /* Rezzes a dummy with the name DUMMY as placeholder at 2.5m distance */ \
-    ((COMMON_ATTACH_DUMMY, "Attach dummy", ACTION_ATTACH, "ATTACH")) /* Attaches a dummy with the name ATTACH as placeholder */
-
 #define DEFAULT_PLACEHOLDERS \
-        llLinksetDataWrite("AV", llGetOwner());
+        llLinksetDataWrite("AV", llGetOwner()); \
+        llLinksetDataWrite("TESTCHANNEL", (string)TEST_CHANNEL);
 
 // -- Start of preprocessor macros
-
+#if LOAD_LOCAL_TESTS==TRUE
 #include <boost/preprocessor/seq/for_each_i.hpp>
 #include <boost/preprocessor/seq/for_each.hpp>
 #include <boost/preprocessor/tuple/elem.hpp>
@@ -245,6 +239,10 @@
 #include <boost/preprocessor/tuple/size.hpp>
 #include <boost/preprocessor/tuple/pop_front.hpp>
 #include <boost/preprocessor/cat.hpp>
+
+#define DEFAULT_COMMON_ACTIONS \
+    ((COMMON_REZ_DUMMY, "Rez dummy", ACTION_REZ, "DUMMY", 2.5)) /* Rezzes a dummy with the name DUMMY as placeholder at 2.5m distance */ \
+    ((COMMON_ATTACH_DUMMY, "Attach dummy", ACTION_ATTACH, "ATTACH")) /* Attaches a dummy with the name ATTACH as placeholder */
 
 // Helpers
 #define _ ""
@@ -291,6 +289,9 @@
 // -- End of preprocessor macros
 
 list _tests = [BOOST_PP_SEQ_FOR_EACH_I(GET_TEST_NAME, _, TEST_DATA)]; // All tests
+#else
+list _tests = [];
+#endif
 
 integer _activeTest = -1; // Index of current test
 integer _activeTestState = TESTSTATE_IDLE; // Current state of the test
@@ -348,6 +349,10 @@ string getParameter(string param)
 
     return result + param;
 }
+
+#if LOAD_NOTECARDS_TESTS==TRUE
+list _notecardQueries = [];
+#endif
 
 log(string msg) { if(_activeTestState != TESTSTATE_IDLE) llOwnerSay("[V's Tester] [" + (string)_tests[_activeTest] + "] " + msg); else llOwnerSay("[V's Tester] " + msg); }
 #ifdef INFO
@@ -450,7 +455,20 @@ default
         logVerbose("Tests: " + llDumpList2String(_tests, ", "));
         BOOST_PP_SEQ_FOR_EACH(TEST_WRITER, _, TEST_DATA)
         BOOST_PP_SEQ_FOR_EACH(COMMON_ACTION_WRITER, _, COMMON_ACTIONS)
-        logInfo("Tests loaded");
+        logInfo("Local tests loaded.");
+#if LOAD_NOTECARDS_TESTS==TRUE
+        logInfo("Loading notecard tests..");
+        integer count = llGetInventoryNumber(INVENTORY_NOTECARD);
+        string name;
+        string queryId;
+        while(count--)
+        {
+            name = llGetInventoryName(INVENTORY_NOTECARD, count);
+            queryId = (string)llGetNotecardLine(name, 0);
+            _notecardQueries += [name + ":" + queryId + ":0"];
+            logVerbose("Loading notecard: \"" + name + "\".");
+        }
+#endif
 
         integer memused = llGetUsedMemory();
         integer memmax = llGetMemoryLimit();
@@ -458,12 +476,58 @@ default
         integer memperc = (integer)(100.0 * (float)memused/memmax);
         integer lsdAvailable = llLinksetDataAvailable();
 
-        log("Memory Used: " + (string)memused + "\nMemory Free: " + (string)memfree + "\nMemory Limit: " + (string)memmax + "\nPercentage of Memory Usage: " + (string)memperc + "%");
-        log("LSD available: " + (string)lsdAvailable + " / 131072 (" + (string)((integer)(100 * (float)lsdAvailable/131072)) + "%)");
+        log("Memory Used: " + (string)memused + "\nMemory Free: " + (string)memfree + "\nMemory Limit: " + (string)memmax + "\nPercentage of Memory Usage: " + (string)memperc + "%.");
+        log("LSD available: " + (string)lsdAvailable + " / 131072 (" + (string)((integer)(100 * (float)lsdAvailable/131072)) + "%).");
 
         log("Ready to start. Touch this object to start the test suite.");
     }
-    
+#if LOAD_NOTECARDS_TESTS==TRUE
+    dataserver(key queryid, string data)
+    {
+        integer i;
+        integer len = llGetListLength(_notecardQueries);
+        for(i = 0; i < len; i++)
+        {
+            logVerbose((string)_notecardQueries[i]);
+            list parts = llParseString2List((string)_notecardQueries[i], [":"], []);
+            if((key)parts[1] == queryid)
+            {
+                integer lineIndex = (integer)parts[2];
+                string name = (string)parts[0];
+                string notecardTestData = llLinksetDataRead("NC_" + name);
+                while (data != EOF && data != NAK) {
+                    if(data != "")
+                    {
+                        data = llStringTrim(data, STRING_TRIM);
+                        notecardTestData += data;
+                    }
+                    data = llGetNotecardLineSync((string)parts[0], ++lineIndex);
+                }
+
+                if (data == NAK)
+                {
+                    llLinksetDataWrite("NC_" + name, notecardTestData);
+                    string _queryId = (string)llGetNotecardLine((string)parts[0], (integer)parts[2]);
+                    llListReplaceList(_notecardQueries, [name + ":" + _queryId + ":" + (string)lineIndex], i, i);
+                }
+
+                if (data == EOF)
+                {
+                    llLinksetDataWrite("NC_" + name, notecardTestData);
+                    //llLinksetDataDelete("NC_" + name);
+                    if(llJsonValueType(notecardTestData, []) == JSON_INVALID)
+                        log("Notecard \"" + name + "\" does not contain valid JSON.");
+                    #ifdef VERBOSE
+                    else
+                        logVerbose("Notecard \"" + name + "\" loaded.");
+                    #endif
+                }
+
+                return;
+            }
+        }
+    }
+#endif
     touch_start(integer num_detected)
     {
         log("Starting test suite.");
