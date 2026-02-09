@@ -2,7 +2,8 @@
 // -- Changelog, tester information, readme, and instructions to create a new tester --
 // ####################################################################################
 
-// V's Tester v1.0, by Voisin (Nensec Resident)
+// V's Tester v1.1, by Voisin (Nensec Resident)
+
 // Latest version can always be found on github: https://github.com/Nensec/lsl-api-tester
 // Feel free to modify and redistribute this script however you please, I simply ask that you keep my name as the original author by keeping the changelog intact and simply add your own changelog.
 
@@ -28,7 +29,99 @@
 //  - An attachable object. ApiTester_Relay.lsl lives in here as well. This object is meant to be temporary attached, as such it also requires to be Copy/Modify.
 // The rezzable object and attachable object need to be in the inventory of the tester object.
 
-// To configure the tester simply modify the output of the macros below according to the comments, some things do not need to be changed whilst other things will according to your API needs.
+// -- Defining tests
+
+// Test are loaded via notecard and are formatted in JSON. You can write them in your IDE of choice that allows for JSON syntax validation and then simply copy over the text into the notecard.
+// There is a schema available in the repository, you can point your test suite towards it to validate it to what the tester expects.
+// Simply add:
+// { "$schema": "https://raw.githubusercontent.com/Nensec/lsl-api-tester/refs/heads/master/test-suite.schema.json" }
+
+// Note: This schema is ignored by the tester when parsing in-game, you can leave it in your notecard.
+
+// -- Common actions
+
+// Define common functions that are required in many tests, this helps reducing the repetitiveness and ensure that you are generally doing the same thing.
+
+// For example: Your API requires a script to announce itself first before it will accept a command from the script, rather than writing the full SEND to authenticate as part of the test data simply define it once there and use it in place of an action.
+
+// - Available actions:
+
+// - SEND (0)
+// Send a message on a channel to kick off the test.
+// - Parameters:
+//     - key target
+//     - integer channel
+//     - string message
+
+// - ASK (1)
+// Ask a Yes/No question, if answered with No then the test is marked as failed.
+// - Parameters:
+//     - string message
+
+// -- REZ (2)
+// Rezzes a Relay object. It's name gets added to LSD as a placeholder with the value being its UUID. The Relay object houses a simple relaying script that allows the RELAY function to send messages via the Relay object.
+// - Names however need to be unique for each.
+// - Parameters:
+//     - string name
+//     - float distance (max 10, SL limit)
+
+// -- EXPECT (3)
+// Assert a certain value is returned since beginning of test, SEND or RELAY. If a * is added any remaining string after the * is ignored. Useful for commands that return a value not known ahead of time, but do fit a pattern.
+// - Parameters:
+//     - integer channel
+//     - string value
+//     - integer time (in milliseconds)
+//     - integer type
+// - Types:
+//     - 0 (Beginning of test)
+//     - 1 (Since last SEND)
+//     - 2 (Since last RELAY)
+
+// -- RELAY (4)
+// Instructs a given Relay object to relay a message.
+// - Parameters:
+//     - key relay
+//     - integer channel
+//     - string value
+//     - integer channelType
+// - Types:
+//     - 0: RegionSayTo (target = llGetOwner)
+//     - 1: llSay
+//     - 2: llWhisper
+//     - 3: llShout
+
+// -- ATTACH (5)
+// Attaches a Relay object. It's name gets added to LSD as a placeholder with the value being its UUID.
+// The Relay object houses a simple relaying script that allows the RELAY function to send messages via the Relay object.
+// - Names however need to be unique for each.
+// - Parameters:
+//     - string name
+
+// - Placeholders
+// All parameters for actions have the ability to be replaced dynamically by a different value, something that is generally not known as a constant.
+// These are called `placeholders` and you can refer to them in your actions using the `$` symbol as a prefix. The tester, by default, has two placeholders already defined that you can use:
+// - AV
+//     - The avatar's UUID
+// - TESTCHANNEL
+//     - The integer that was defined as part of the TEST_CHANNEL macro in the configuration section
+
+// -- To add your own
+// Create a new script file that has the same name as your notecard but append the suffix `_PH` to it.
+// Add a new llLinksetDataWrite for every placeholder you want to add, you can always call a function as well if something is especially complex to calculate.
+
+// Of course you can also modify the ApiTester.lsl as well and add them hard-coded if your value is used in many, or even all, of your test suites.
+
+// Example:
+
+// default
+// {
+//     state_entry()
+//     {
+//         llLinksetDataWrite("IB", (string)(-1 - (integer)("0x" + llGetSubString((string)llGetOwner(), -7, -1)) + 5515));
+//     }
+// }
+
+// Note: the LSD is wiped on every rez and re-filled during initialization of the tester.
 
 // ####################################################################################
 // -- Adjust the macro outputs to your testing needs by following instructions below --
@@ -37,6 +130,7 @@
 // Turn off which logging you do not want by commenting out the log level. Turning all off will result in only the test result to be output.
 // Turning off logging will help a lot in script memory, it is recommended to only turn on logging when you are experiencing problems and when you do turn off irrelevant tests by commenting them out.
 // Logging adds a lot of memory!
+
 //#define INFO
 //#define VERBOSE
 //#define LISTENER // This will dump all content you receive from listeners you have specified in EXPECT's in a test, it can be very spammy depending on how much chatter you have on your channel(s)!
@@ -53,17 +147,6 @@
 
 #define DUMMY_ATTACH "Attach" // The name of the Relay object to rez and attach when ATTACH is used. This object has to exist in the inventory where this tester script lives and must contain the ApiTester_Relay.lsl script.
 #define DUMMY_ATTACH_POINT 35 // See https://wiki.secondlife.com/wiki/LlAttachToAvatar for attachment points
-
-// Add a new llLinksetDataWrite for every placeholder you want to add, you can always call a function as well if something is especially complex to calculate.
-// Where applicable you can insert these placeholder values by prefixing its name with a $ symbol.
-// A set of default placeholders is available in DEFAULT_PLACEHOLDERS. You can completely omit these if you do not use them.
-//
-// Example:
-// #define SETUPPLACEHOLDERS DEFAULT_PLACEHOLDERS \
-//         llLinksetDataWrite("SOMECUSTOMCONSTANT", "This is an example");
-//
-// Note: the LSD is wiped on every rez and re-filled during initialization of the tester.
-#define SETUPPLACEHOLDERS DEFAULT_PLACEHOLDERS
 
 // ####################################################################################
 // -- Below here should not be edited by the user unless you know what you are doing --
@@ -126,6 +209,8 @@
 #define COMMON_ACTIONS \
         llLinksetDataWrite("C_REZ_DUMMY", DEFER_STR({"n":"Rez dummy","a":ACTION_REZ,"p":["DUMMY",2.5]})); \
         llLinksetDataWrite("C_ATTACH_DUMMY", DEFER_STR({"n":"Attach dummy","a":ACTION_ATTACH,"p":["ATTACH"]}));
+
+// -- Global variables
 
 string _currentSuite;
 list _tests = []; // Currently loaded test suite
@@ -401,6 +486,8 @@ commandHandler(string message)
         printMemory();
 }
 
+// -- States
+
 default
 {
     state_entry()
@@ -411,7 +498,7 @@ default
         llLinksetDataReset();
 
         logVerbose("Loading placeholders into LSD..");
-        SETUPPLACEHOLDERS
+        DEFAULT_PLACEHOLDERS
         logVerbose("Loading common actions into LSD..");
         COMMON_ACTIONS
 #ifdef VERBOSE

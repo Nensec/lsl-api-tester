@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/Nensec/lsl-api-tester/refs/heads/master/test-suite.schema.json",
   "name": "Collective API",
   "version": "1.2.71",
   "tests": [
@@ -12,7 +13,9 @@
           {
             "n": "Ask if device removed",
             "a": 1,
-            "p": ["Did the device get removed?"]
+            "p": [
+              "Did the device get removed?"
+            ]
           }
         ]
       }
@@ -25,46 +28,72 @@
           {
             "n": "Relay add",
             "a": 4,
-            "p": ["$ATTACH", "$IB", "add Relay", 0]
+            "p": [
+              "$ATTACH",
+              "$IB",
+              "add Relay",
+              0
+            ]
           },
           {
             "n": "Kill relay",
             "a": 0,
-            "p": ["$ATTACH", "$TESTCHANNEL", "die"]
+            "p": [
+              "$ATTACH",
+              "$TESTCHANNEL",
+              "die"
+            ]
           },
           {
             "n": "Ask if device removed",
-            "a": 1,
-            "p": ["Did the relay device get removed automatically?"]
+            "a": 5,
+            "p": [
+              "Did the relay device get removed automatically?"
+            ]
           }
         ]
       }
     },
     {
       "ADDCOMMAND": {
-        "d": ["ADD_AND_REMOVE"],
+        "d": [
+          "ADD_AND_REMOVE"
+        ],
         "a": [
           "ADD_TESTER",
           "WAIT_FOR_CONFIRM",
           {
             "n": "Send add command",
             "a": 0,
-            "p": ["$AV", "$IB", "add-command Test"]
+            "p": [
+              "$AV",
+              "$IB",
+              "add-command Test"
+            ]
           },
           {
             "n": "Ask if command added",
             "a": 1,
-            "p": ["Did the command get added?"]
+            "p": [
+              "Did the command get added?"
+            ]
           },
           {
             "n": "Remove commands command",
             "a": 0,
-            "p": ["$AV", "$IB", "remove-commands", ""]
+            "p": [
+              "$AV",
+              "$IB",
+              "remove-commands",
+              ""
+            ]
           },
           {
             "n": "Ask if commands removed",
             "a": 1,
-            "p": ["Did the command get removed?"]
+            "p": [
+              "Did the command get removed?"
+            ]
           },
           "REMOVE_TESTER"
         ]
@@ -72,7 +101,9 @@
     },
     {
       "FOLLOW": {
-        "d": ["ADD_AND_REMOVE"],
+        "d": [
+          "ADD_AND_REMOVE"
+        ],
         "a": [
           "REZ_DUMMY",
           "ADD_TESTER",
@@ -80,7 +111,11 @@
           {
             "n": "Send follow command",
             "a": 0,
-            "p": ["$AV", "$IB", "follow $DUMMY"]
+            "p": [
+              "$AV",
+              "$IB",
+              "follow $DUMMY"
+            ]
           },
           "REMOVE_TESTER"
         ]
@@ -88,27 +123,48 @@
     },
     {
       "IDENTIFY": {
-        "d": ["ADD_AND_REMOVE"],
+        "d": [
+          "ADD_AND_REMOVE"
+        ],
         "a": [
           {
             "n": "Send identify",
             "a": 0,
-            "p": ["$AV", "$IB", "identify"]
+            "p": [
+              "$AV",
+              "$IB",
+              "identify"
+            ]
           },
           {
             "n": "Identification",
             "a": 3,
-            "p": ["$IB", "identification*", 500, 1]
+            "p": [
+              "$IB",
+              "identification*",
+              500,
+              1
+            ]
           },
           {
             "n": "Owners",
             "a": 3,
-            "p": ["$IB", "owners*", 500, 1]
+            "p": [
+              "$IB",
+              "owners*",
+              500,
+              1
+            ]
           },
           {
             "n": "Software",
             "a": 3,
-            "p": ["$IB", "software*", 500, 1]
+            "p": [
+              "$IB",
+              "software*",
+              500,
+              1
+            ]
           }
         ]
       }
@@ -119,21 +175,34 @@
       "ADD_TESTER": {
         "n": "Add tester",
         "a": 0,
-        "p": ["$AV", "$IB", "add Tester"]
+        "p": [
+          "$AV",
+          "$IB",
+          "add Tester"
+        ]
       }
     },
     {
       "WAIT_FOR_CONFIRM": {
         "n": "Confirm add",
         "a": 3,
-        "p": ["$IB", "add-confirm*", 500, 1]
+        "p": [
+          "$IB",
+          "add-confirm*",
+          500,
+          1
+        ]
       }
     },
     {
       "REMOVE_TESTER": {
         "n": "Remove tester",
         "a": 0,
-        "p": ["$AV", "$IB", "remove Tester"]
+        "p": [
+          "$AV",
+          "$IB",
+          "remove Tester"
+        ]
       }
     }
   ]
