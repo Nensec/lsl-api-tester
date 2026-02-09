@@ -9,31 +9,21 @@
 // -- Changelog
 
 // v1.0: Initial version - Voisin (Nensec Resident)
+// v1.1: Removed Boost framework and made tester completely notecard based, removing the need for a runner script - Voisin (Nensec Resident)
 
 // -- What is it
 
 // The purpose of this script is to help automate the testing of your API. It does so by using pre-defined blocks of code to define what a test is and what it should do.
 // By using pre-defined blocks you eliminate, or at least heavily reduce, contamination of copy pasting or other code. You are also ensured that every time you use that block it will do the same thing.
-// 
-
-// This tester script is in part self-generating, all you have to do is define data and the code will be generated using the Boost preprocessor.
-// The resulting compiled code is, as a result, less than stellar to read. If you do not have a preprocessor enabled and was given this script, that would be why.
-// As such in order to compile this script you need to have the Boost files ready on your local hard drive and have your preprocessor configured to find these files
-// In Firestorm, where this script is build for, you just have to ensure that your include path has access to the boost folder in its root such that the above #include's are correct.
-// You can of course alter the includes above to match your folder structure.
-
-// Boost can be downloaded from here: https://www.boost.org/releases/latest/
-// I suggest grabbing a zip and just unpack it where you need it.
 
 // -- How to use
 
 // If you received this script stand alone you need it's companion script: ApiTester_Relay.lsl.
-// **COMING SOON in v1.1** Additionally, if your test suite is so large that this script runs into memory problems and stack heaps you can instead use the runner mode option and require the ApiTester_Runner.lsl script
 // All scripts, and thus its latest versions, can be found at on my github: https://github.com/Nensec/lsl-api-tester
 // As this script is meant for developers, I welcome forking and subsequent pull requests with modifications!
 
 // The tester has 3 objects that it uses.
-//  - The tester object. ApiTester.lsl and ApiTester_Runner.lsl live in here. (The latter is optional and dependant on configuration here!)
+//  - The tester object. ApiTester.lsl lives in here.
 //  - A rezzable object. ApiTester_Relay.lsl lives in here. This object is meant to be rezzed, as such it requires to be Copy/Modify.
 //  - An attachable object. ApiTester_Relay.lsl lives in here as well. This object is meant to be temporary attached, as such it also requires to be Copy/Modify.
 // The rezzable object and attachable object need to be in the inventory of the tester object.
@@ -47,15 +37,13 @@
 // Turn off which logging you do not want by commenting out the log level. Turning all off will result in only the test result to be output.
 // Turning off logging will help a lot in script memory, it is recommended to only turn on logging when you are experiencing problems and when you do turn off irrelevant tests by commenting them out.
 // Logging adds a lot of memory!
-#define INFO
-#define VERBOSE
+//#define INFO
+//#define VERBOSE
 //#define LISTENER // This will dump all content you receive from listeners you have specified in EXPECT's in a test, it can be very spammy depending on how much chatter you have on your channel(s)!
 
 // Tester configuration
-#define TESTER_MODE TESTER_MODE_LOCAL // Run the script locally (TESTER_MODE_LOCAL) in just this script or use a runner script (TESTER_MODE_RUNNER) that contains all the logic, this will save on memory but uses link messages to control the test flow.
-#define LOAD_LOCAL_TESTS TRUE // Loads tests locally defined using the Boost preprocessor, if set to FALSE will not require Boost at all to be installed
-#define LOAD_NOTECARDS_TESTS TRUE // Attempts to load JSON notecards with test data
 #define TEST_CHANNEL -8378464 // This is the channel that the tests and relay communicate on, all listeners are filtered by owner avatar id.
+#define COMMAND_CHANNEL 9 // This is the channel where the tester receives user commands on
 
 #define ASK_TYPE ASK_TYPE_DIALOG // Should the ASK action request a reply in a clickable chat message (ASK_TYPE_CHAT), or should it show a dialog with buttons (ASK_TYPE_DIALOG)?
 
@@ -66,123 +54,25 @@
 #define DUMMY_ATTACH "Attach" // The name of the Relay object to rez and attach when ATTACH is used. This object has to exist in the inventory where this tester script lives and must contain the ApiTester_Relay.lsl script.
 #define DUMMY_ATTACH_POINT 35 // See https://wiki.secondlife.com/wiki/LlAttachToAvatar for attachment points
 
-// Define tests and their actions, these tell a 'story'. e.g. "After we SEND add Tester we EXPECT to return add-confirm." or "After we SEND remove Tester we ASK Did the device manager report the device \"Tester\" was removed?"
-//
-// The first parameter of the tuple is the name of the test, no spaces allowed.
-// The second parameter of the tiple is a list of dependencies, this allows you to skip tests if you know they will fail because it's function is reliant on another test being succesful
-// The third parameter of the tuple is a list of tuples that define actions to be executed for this test.
-//
-// Note: You need to double up the brackets.
-//
-// Examples:
-//  (("ADD", ([]), (("Add tester", ACTION_SEND, "$AV", "$IB", "add Tester"))(("Look for add-confirm", ACTION_EXPECT, "$IB", "add-confirm", 500, EXPECT_TYPE_BEGINNING)) ))
-//  (("REMOVE", (["ADD"]), (("Remove tester", ACTION_SEND, "$AV", "$IB", "remove Tester"))(("Ask if device removed", ACTION_ASK, "Did the device manager report it?")) ))
-//
-// Placeholders are supported, data gets retrieved from LSD. Starting a string using a $ tells the test script to fetch that name from LSD. If not then the raw value is used.
-// See the SETUPPLACEHOLDERS() macro for available placeholders
-//
-// The parameters are as follows:
-//  Name, Action Type, First Parameter, Second Parameter, Third Parameter, Fourth Parameter
-// The name gets output in the log.
-// It is recommended to use the macros for the actions, to ensure there are no typos. Simply prepend ACTION_ to the type of action to use the macro version. e.g. ACTION_SEND or ACTION_EXPECT.
-//
-// Available actions:
-//
-// SEND:
-// Send a message on a channel to kick off the test.
-//  Parameters:
-//      key target
-//      integer channel
-//      string message
-//
-// EXPECT:
-// Assert a certain value is returned since beginning of test, SEND or RELAY. If a * is added any remaining string after the * is ignored. Useful for commands that return a value not known ahead of time, but do fit a pattern.
-//  Parameters:
-//      integer channel
-//      string value
-//      integer time (in milliseconds)
-//      integer type
-//  Types:
-//      EXPECT_TYPE_BEGINNING: Beginning of test
-//      EXPECT_TYPE_SEND: Since last SEND
-//      EXPECT_TYPE_RELAY: Since last RELAY
-//
-// ASK:
-// Ask a Yes/No question, if answered with No then the test is marked as failed.
-//  No max.
-//  Parameters:
-//      string message
-//
-// REZ:
-// Rezzes a Relay object. It's name gets added to LSD as a placeholder with the value being its UUID. The Relay object houses a simple relaying script that allows the RELAY function to send messages via the Relay object.
-//  Names however need to be unique for each.
-//  Parameters:
-//      string name
-//      float distance (max 10, SL limit)
-//
-// ATTACH:
-// Rezzes a Relay object. It's name gets added to LSD as a placeholder with the value being its UUID. The Relay object houses a simple relaying script that allows the RELAY function to send messages via the Relay object.
-//  Names however need to be unique for each.
-//  Parameters:
-//      string name
-//
-// RELAY:
-// Instructs a given Relay object to relay a message.
-//  Parameters:
-//      key relay
-//      integer channel
-//      string value
-//      integer channelType
-//  Types:
-//      RELAY_TYPE_REGIONSAYTO: RegionSayTo (target = llGetOwner)
-//      RELAY_TYPE_SAY: llSay
-//      RELAY_TYPE_WHISPER: llWhisper
-//      RELAY_TYPE_SHOUT: llShout
-//
-#if LOAD_LOCAL_TESTS==TRUE
-#define TEST_DATA 
-#endif
-// Define common functions that are required in many tests, this will save on script memory because these will only be generated once.
-// They follow the same pattern as actions in the TEST_DATA macro, where the name is the key of the function. I recommend making macros for the keys so you can easily use them without typos.
-// These functions usually correspond to stand alone tests, where those tests then become dependencies of future tests.
-// For example: Your API requires a script to announce itself first before it will accept a command from the script, rather than writing the full ACTION_SEND to authenticate as part of the test data simply define it once here and use it in place of an action.
-// A set of default common actions is available in DEFAULT_COMMON_ACTIONS. You can completely omit these if you do not use them.
-//
-// Example:
-// #define COMMON_ACTIONS \
-//         ((COMMON_REZ_DUMMY, "Rez dummy", ACTION_REZ, "DUMMY", 2.5)) /* Rezzes a dummy with the name DUMMY as placeholder at 2.5m distance */ \
-//         ((COMMON_ATTACH_DUMMY, "Attach dummy", ACTION_ATTACH, "ATTACH")) /* Attaches a dummy with the name ATTACH as placeholder */
-//
-#if LOAD_LOCAL_TESTS==TRUE
-#define COMMON_ACTIONS DEFAULT_COMMON_ACTIONS
-#endif
 // Add a new llLinksetDataWrite for every placeholder you want to add, you can always call a function as well if something is especially complex to calculate.
 // Where applicable you can insert these placeholder values by prefixing its name with a $ symbol.
-// A set of default placeholders  is available in DEFAULT_PLACEHOLDERS. You can completely omit these if you do not use them.
+// A set of default placeholders is available in DEFAULT_PLACEHOLDERS. You can completely omit these if you do not use them.
 //
 // Example:
-// #define SETUPPLACEHOLDERS \
-//         llLinksetDataWrite("AV", llGetOwner()); \
+// #define SETUPPLACEHOLDERS DEFAULT_PLACEHOLDERS \
+//         llLinksetDataWrite("SOMECUSTOMCONSTANT", "This is an example");
 //
 // Note: the LSD is wiped on every rez and re-filled during initialization of the tester.
 #define SETUPPLACEHOLDERS DEFAULT_PLACEHOLDERS
-
-// Tip: Rather than define all of your tests in this script and keep copies of this entire script around, simply make them in a separate file and #include <yourtests.lsl>.
-// Just #define TEST_DATA, #define COMMON_ACTIONS and #define SETUPPLACEHOLDERS in there, make sure to #undef the macros in here or comment them out here!
-// That way you only need to change one line of code to change your entire test suite!
-// Note: When overriding do not forget to include the DEFAULT_COMMON_ACTIONS and DEFAULT_PLACEHOLDERS if you use them!
 
 // ####################################################################################
 // -- Below here should not be edited by the user unless you know what you are doing --
 // ####################################################################################
 
 // Tester constants
-#define TESTER_MODE_LOCAL 0
-#define TESTER_MODE_RUNNER 1
-
-#if TESTER_MODE==TESTER_MODE_RUNNER
-    #error "Runner mode is not yet implemented, coming soon in v1.1!"
-#endif
+#define _ ""
+#define STR(...) #__VA_ARGS__
+#define DEFER_STR(...) STR(__VA_ARGS__)
 
 #define TESTSTATE_IDLE 0
 #define TESTSTATE_SUCCESS 1
@@ -220,78 +110,16 @@
 #define EXPECT_TYPE_SEND 1
 #define EXPECT_TYPE_RELAY 2
 
-#define COMMON_REZ_DUMMY REZ_DUMMY
-#define COMMON_ATTACH_DUMMY ATTACH_DUMMY
-
 #define DEFAULT_PLACEHOLDERS \
         llLinksetDataWrite("AV", llGetOwner()); \
         llLinksetDataWrite("TESTCHANNEL", (string)TEST_CHANNEL);
 
-// -- Start of preprocessor macros
-#if LOAD_LOCAL_TESTS==TRUE
-#include <boost/preprocessor/seq/for_each_i.hpp>
-#include <boost/preprocessor/seq/for_each.hpp>
-#include <boost/preprocessor/tuple/elem.hpp>
-#include <boost/preprocessor/punctuation/comma_if.hpp>
-#include <boost/preprocessor/control/if.hpp>
-#include <boost/preprocessor/control/iif.hpp>
-#include <boost/preprocessor/comparison/equal.hpp>
-#include <boost/preprocessor/tuple/size.hpp>
-#include <boost/preprocessor/tuple/pop_front.hpp>
-#include <boost/preprocessor/cat.hpp>
+#define COMMON_ACTIONS \
+        llLinksetDataWrite("C_REZ_DUMMY", DEFER_STR({"n": "Rez dummy","a": ACTION_REZ,"p": ["DUMMY", 2.5]})); \
+        llLinksetDataWrite("C_ATTACH_DUMMY", DEFER_STR({"n": "Attach dummy","a": ACTION_ATTACH,"p": ["ATTACH"]}));
 
-#define DEFAULT_COMMON_ACTIONS \
-    ((COMMON_REZ_DUMMY, "Rez dummy", ACTION_REZ, "DUMMY", 2.5)) /* Rezzes a dummy with the name DUMMY as placeholder at 2.5m distance */ \
-    ((COMMON_ATTACH_DUMMY, "Attach dummy", ACTION_ATTACH, "ATTACH")) /* Attaches a dummy with the name ATTACH as placeholder */
-
-// Helpers
-#define _ ""
-#define GLUE_STR(...) #__VA_ARGS__
-#define DEFER_STR(...) GLUE_STR(__VA_ARGS__)
-
-#define GET_TEST_NAME(r, data, i, elem) BOOST_PP_COMMA_IF(i) DEFER_STR(BOOST_PP_TUPLE_ELEM(0, elem))
-
-// Create JSON
-#define BUILD_JSON(r, data, i, elem) \
-    BOOST_PP_COMMA_IF(i) \
-    BOOST_PP_IIF(BOOST_PP_EQUAL(BOOST_PP_TUPLE_SIZE(elem), 1), PROCESS_ELEM_REF, PROCESS_ELEM)(elem)
-
-#define PROCESS_ELEM_REF(elem) DEFER_STR(BOOST_PP_TUPLE_ELEM(0,elem))
-#define PROCESS_ELEM(elem) \
-    BOOST_PP_IF( \
-        BOOST_PP_EQUAL(BOOST_PP_TUPLE_SIZE(elem), 3), \
-        PROCESS_ELEM_ONE_PARAM, \
-        BOOST_PP_IF( \
-            BOOST_PP_EQUAL(BOOST_PP_TUPLE_SIZE(elem), 4), \
-            PROCESS_ELEM_TWO_PARAM, \
-            BOOST_PP_IF( \
-                BOOST_PP_EQUAL(BOOST_PP_TUPLE_SIZE(elem), 5), \
-                PROCESS_ELEM_THREE_PARAM, \
-                PROCESS_ELEM_FOUR_PARAM \
-            ) \
-        ) \
-    )(elem)
-
-#define PROCESS_ELEM_ONE_PARAM(elem) {"n":BOOST_PP_TUPLE_ELEM(0,elem),"a":BOOST_PP_TUPLE_ELEM(1,elem),"p":[BOOST_PP_TUPLE_ELEM(2,elem)]}
-#define PROCESS_ELEM_TWO_PARAM(elem) {"n":BOOST_PP_TUPLE_ELEM(0,elem),"a":BOOST_PP_TUPLE_ELEM(1,elem),"p":[BOOST_PP_TUPLE_ELEM(2,elem),BOOST_PP_TUPLE_ELEM(3,elem)]}
-#define PROCESS_ELEM_THREE_PARAM(elem) {"n":BOOST_PP_TUPLE_ELEM(0,elem),"a":BOOST_PP_TUPLE_ELEM(1,elem),"p":[BOOST_PP_TUPLE_ELEM(2,elem),BOOST_PP_TUPLE_ELEM(3,elem),BOOST_PP_TUPLE_ELEM(4,elem)]}
-#define PROCESS_ELEM_FOUR_PARAM(elem) {"n":BOOST_PP_TUPLE_ELEM(0,elem),"a":BOOST_PP_TUPLE_ELEM(1,elem),"p":[BOOST_PP_TUPLE_ELEM(2,elem),BOOST_PP_TUPLE_ELEM(3,elem),BOOST_PP_TUPLE_ELEM(4,elem),BOOST_PP_TUPLE_ELEM(5,elem)]}
-
-#define BUILD_DEPENDENCIES(r, data, i, elem) BOOST_PP_COMMA_IF(i) elem
-
-// Generate LSL
-#define TEST_WRITER(r, data, elem) \
-    llLinksetDataWrite(DEFER_STR(BOOST_PP_CAT(T_, BOOST_PP_TUPLE_ELEM(0, elem))), DEFER_STR({"d":[BOOST_PP_SEQ_FOR_EACH_I(BUILD_DEPENDENCIES, _, BOOST_PP_TUPLE_ELEM(1, elem))],"a":[BOOST_PP_SEQ_FOR_EACH_I(BUILD_JSON, _, BOOST_PP_TUPLE_ELEM(2, elem))]}));
-
-#define COMMON_ACTION_WRITER(r, data, elem) \
-    llLinksetDataWrite(DEFER_STR(BOOST_PP_CAT(C_, BOOST_PP_TUPLE_ELEM(0, elem))), DEFER_STR(PROCESS_ELEM(BOOST_PP_TUPLE_POP_FRONT(elem))));
-
-// -- End of preprocessor macros
-
-list _tests = [BOOST_PP_SEQ_FOR_EACH_I(GET_TEST_NAME, _, TEST_DATA)]; // All tests
-#else
-list _tests = [];
-#endif
+string _currentSuite;
+list _tests = []; // Currently loaded test suite
 
 integer _activeTest = -1; // Index of current test
 integer _activeTestState = TESTSTATE_IDLE; // Current state of the test
@@ -304,17 +132,20 @@ string _currentTaskFailureMessage;
 list _receivedMessage = []; // Strided list of 3: [message, channel, timestamp]
 list _rezzedDummies = []; // All of the dummies rezzed during the current test
 
-string  _p1;
-string  _p2;
-string  _p3;
-string  _p4;
+// Parameters are global, this is to lower memory fragmentation
+string  _p1; // Parameter 1 of current action
+string  _p2; // Parameter 1 of current action
+string  _p3; // Parameter 1 of current action
+string  _p4; // Parameter 1 of current action
 
 float _rezTime; // When was the last REZ
 float _sendTime; // When was the last SEND
 float _relayTime; // when was the last RELAY
 float _askTime; // when was the last ASK
 
-float _touch;
+float _touchTime; // When was the tester last touched
+
+list _notecardQueries = []; // active notecard queries
 
 // -- Helper functions
 
@@ -349,10 +180,6 @@ string getParameter(string param)
 
     return result + param;
 }
-
-#if LOAD_NOTECARDS_TESTS==TRUE
-list _notecardQueries = [];
-#endif
 
 log(string msg) { if(_activeTestState != TESTSTATE_IDLE) llOwnerSay("[V's Tester] [" + (string)_tests[_activeTest] + "] " + msg); else llOwnerSay("[V's Tester] " + msg); }
 #ifdef INFO
@@ -424,71 +251,95 @@ list getTaskActions()
     return actions;
 }
 
+loadNotecards()
+{
+    _notecardQueries = [];
+    _currentSuite = _;
+
+    llLinksetDataDeleteFound("NC_", _);
+
+    integer count = llGetInventoryNumber(INVENTORY_NOTECARD);
+    if(count > 1)
+        log("Found " + (string)count + " notecards, parsing them now..");
+    else if(count == 0)
+        log("No notecards found, add a notecard with test data to begin.");
+    else
+        log("Found 1 notecard, parsing it now..");
+ 
+    string name;
+    string queryId;
+    while(count--)
+    {
+        name = llGetInventoryName(INVENTORY_NOTECARD, count);
+        queryId = (string)llGetNotecardLine(name, 0);
+        _notecardQueries += [name + ":" + queryId + ":0"];
+        logVerbose("Parsing notecard: \"" + name + "\".");
+    }
+}
+
 saveRezzedDummy(key id)
 {
-    string dummyName = llJsonGetValue(_currentTaskData, [ACTION_1STPARAM]);
-    logVerbose("Saving placeholder \"" + dummyName + "\" with value: \"" + (string)id + "\".");
-    llLinksetDataWrite(dummyName, id); // Save the rezzed object in LSD so it can be used as a placeholder
-    llRegionSayTo(id, TEST_CHANNEL, RELAY_COMMAND_INIT + " " + dummyName);
-    _rezzedDummies += [dummyName + ":" + (string)id];
+    logVerbose("Saving placeholder \"" + _p1 + "\" with value: \"" + (string)id + "\".");
+    llLinksetDataWrite(_p1, id); // Save the rezzed object in LSD so it can be used as a placeholder
+    llRegionSayTo(id, TEST_CHANNEL, RELAY_COMMAND_INIT + " " + _p1);
+    _rezzedDummies += [_p1 + ":" + (string)id];
     _currentTaskState = TASKSTATE_SUCCESS;
+}
+
+printMemory()
+{
+    integer memused = llGetUsedMemory();
+    integer memmax = llGetMemoryLimit();
+    integer memfree = llGetFreeMemory();
+    integer memperc = (integer)(100.0 * (float)memused/memmax);
+    integer lsdAvailable = llLinksetDataAvailable();
+
+    log("Memory Used: " + (string)memused + "\nMemory Free: " + (string)memfree + "\nMemory Limit: " + (string)memmax + "\nPercentage of Memory Usage: " + (string)memperc + "%.");
+    log("LSD available: " + (string)lsdAvailable + " / 131072 (" + (string)((integer)(100 * (float)lsdAvailable/131072)) + "%).");
+}
+
+killOtherScripts()
+{
+    integer count = llGetInventoryNumber(INVENTORY_SCRIPT);
+    string name;
+    while(count--) // Kill other scripts in the tester
+    {
+        name = llGetInventoryName(INVENTORY_SCRIPT, count);
+        if(name != llGetScriptName())
+            llSetScriptState(name, FALSE);
+    }
 }
 
 default
 {
     state_entry()
     {
+        killOtherScripts();
+
         logInfo("Wiping LSD.");
         llLinksetDataReset();
 
         SETUPPLACEHOLDERS
+        COMMON_ACTIONS
 #ifdef VERBOSE
         logVerbose("Placeholders saved in LSD:");
         list keys = llLinksetDataListKeys(0, 0);
         for(;keys;keys=llDeleteSubList(keys,0,0))
             llOwnerSay("    " + (string)keys[0] + ": " + llLinksetDataRead((string)keys[0]));
+        
+        printMemory();
 #endif
-#ifdef INFO
-        integer testCount = llGetListLength(_tests);
-        logInfo("Loading " + (string)testCount + " tests..");
-#endif
-        logVerbose("Tests: " + llDumpList2String(_tests, ", "));
-        BOOST_PP_SEQ_FOR_EACH(TEST_WRITER, _, TEST_DATA)
-        BOOST_PP_SEQ_FOR_EACH(COMMON_ACTION_WRITER, _, COMMON_ACTIONS)
-        logInfo("Local tests loaded.");
-#if LOAD_NOTECARDS_TESTS==TRUE
-        logInfo("Loading notecard tests..");
-        integer count = llGetInventoryNumber(INVENTORY_NOTECARD);
-        string name;
-        string queryId;
-        while(count--)
-        {
-            name = llGetInventoryName(INVENTORY_NOTECARD, count);
-            queryId = (string)llGetNotecardLine(name, 0);
-            _notecardQueries += [name + ":" + queryId + ":0"];
-            logVerbose("Loading notecard: \"" + name + "\".");
-        }
-#endif
+        loadNotecards();
 
-        integer memused = llGetUsedMemory();
-        integer memmax = llGetMemoryLimit();
-        integer memfree = llGetFreeMemory();
-        integer memperc = (integer)(100.0 * (float)memused/memmax);
-        integer lsdAvailable = llLinksetDataAvailable();
-
-        log("Memory Used: " + (string)memused + "\nMemory Free: " + (string)memfree + "\nMemory Limit: " + (string)memmax + "\nPercentage of Memory Usage: " + (string)memperc + "%.");
-        log("LSD available: " + (string)lsdAvailable + " / 131072 (" + (string)((integer)(100 * (float)lsdAvailable/131072)) + "%).");
-
-        log("Ready to start. Touch this object to start the test suite.");
+        llListen(COMMAND_CHANNEL, _, llGetOwner(), _);
     }
-#if LOAD_NOTECARDS_TESTS==TRUE
+
     dataserver(key queryid, string data)
     {
         integer i;
         integer len = llGetListLength(_notecardQueries);
         for(i = 0; i < len; i++)
         {
-            logVerbose((string)_notecardQueries[i]);
             list parts = llParseString2List((string)_notecardQueries[i], [":"], []);
             if((key)parts[1] == queryid)
             {
@@ -516,18 +367,94 @@ default
                     llLinksetDataWrite("NC_" + name, notecardTestData);
                     //llLinksetDataDelete("NC_" + name);
                     if(llJsonValueType(notecardTestData, []) == JSON_INVALID)
+                    {
                         log("Notecard \"" + name + "\" does not contain valid JSON.");
-                    #ifdef VERBOSE
+                        llLinksetDataDelete("NC_" + name);
+                    }
                     else
-                        logVerbose("Notecard \"" + name + "\" loaded.");
-                    #endif
+                        log("Notecard \"" + name + DEFER_STR(" loaded. Activate it's suite using "/COMMAND_CHANNEL load) + " " + name + "\"");
+                    
+                    _notecardQueries = llList2List(_notecardQueries, 0, i) + llList2List(_notecardQueries, i + 1, -1);
                 }
 
                 return;
             }
         }
     }
-#endif
+
+    listen(integer channel, string name, key id, string message)
+    {
+        list parts = llParseString2List(message, [" "], []);
+        string cmd = (string)parts[0];
+        if(cmd == "reload")
+            loadNotecards();
+        else if(cmd == "load" && (string)parts[1] != "")
+        {
+            string name = (string)parts[1];
+            string json = llLinksetDataRead("NC_" + name);
+            if(llJsonValueType(json, []) != JSON_OBJECT)
+                log("There is no suite called \"" + name + "\"" + DEFER_STR(View available suits using DEFER_STR(/COMMAND_CHANNEL suites)));
+            else
+            {
+                log("Loading test suite \"" + llJsonGetValue(json, ["name"]) + "\"");
+                _tests = [];
+                killOtherScripts();
+                integer i;
+                integer len;
+                list jsonList = llJson2List(llJsonGetValue(json, ["commonActions"]));
+                list jsonItem;
+                len = llGetListLength(jsonList);
+                for(i = 0; i < len; i++)
+                {
+                    jsonItem = llJson2List((string)jsonList[i]);
+                    llLinksetDataWrite("C_" + (string)jsonItem[0], (string)jsonItem[1]);
+                }
+                jsonList = llJson2List(llJsonGetValue(json, ["tests"]));
+                len = llGetListLength(jsonList);
+                for(i = 0; i < len; i++)
+                {
+                    jsonItem = llJson2List((string)jsonList[i]);
+                    llLinksetDataWrite("T_" + (string)jsonItem[0], (string)jsonItem[1]);
+                    _tests += [(string)jsonItem[0]];
+                }
+                _currentSuite = llJsonGetValue(json, ["name"]);
+                if(llGetInventoryType(name + "_PH") == INVENTORY_SCRIPT)
+                {
+                    llSetScriptState(name + "_PH", TRUE);
+                    llResetOtherScript(name + "_PH");
+                }
+                log(DEFER_STR(Loading finished. Use the command DEFER_STR(/COMMAND_CHANNEL start) to start the test suite));
+            }
+        }
+        else if(cmd == "start")
+        {
+            if(_currentSuite)
+                state load_next_test;
+            else
+                log(DEFER_STR(There is no suite selected. Run the following command to load a test suite: DEFER_STR(/COMMAND_CHANNEL load <name>)));
+        }
+        else if(cmd == "suites")
+        {
+            list suites = llLinksetDataFindKeys("^NC_.*$", 0, 0);
+            if(suites)
+            {
+                log("Test suites available:");
+                integer i;
+                integer len = llGetListLength(suites);
+                string json;
+                for(i = 0; i < len; i++)
+                {
+                    json = llLinksetDataRead((string)suites[i]);
+                    log("    [" + llGetSubString((string)suites[i], 3, -1) + "] " + llJsonGetValue(json, ["name"]) + " (v" + llJsonGetValue(json, ["version"]) +")");
+                }
+            }
+            else
+                log(DEFER_STR(No suites found in LSD. Insert notecards with test data and use: DEFER_STR(/COMMAND_CHANNEL reload)));
+        }
+        else if(cmd == "mem")
+            printMemory();
+    }
+
     touch_start(integer num_detected)
     {
         log("Starting test suite.");
@@ -549,19 +476,19 @@ state report
 
     touch_start(integer num_detected)
     {
-        _touch = llGetTime();
+        _touchTime = llGetTime();
     }
 
     touch(integer num_detected)
     {
-        if(_touch != 0 && (_touch + 3.0) < llGetTime())
+        if(_touchTime != 0 && (_touchTime + 3.0) < llGetTime())
             llResetScript();
     }
 
     touch_end(integer num_detected)
     {
-        _touch = 0;
-        list testData = llLinksetDataFindKeys("R_", 0, 0);
+        _touchTime = 0;
+        list testData = llLinksetDataFindKeys("^R_.*$", 0, 0);
         integer i;
         integer len = llGetListLength(testData);
         for(i = 0; i < len; i++)
@@ -849,14 +776,6 @@ state run_test
                     _currentTaskState = TASKSTATE_FAILURE;
                 }
             }
-            
-            if(_currentTaskState == TASKSTATE_FAILURE)
-            {
-                reportTaskState();
-                state load_next_test;
-            }
-            else if(_currentTaskState == TASKSTATE_SUCCESS)
-                loadNextTask();
         }
         else if(currentActionType == ACTION_ASK)
         {
@@ -881,14 +800,6 @@ state run_test
                     _currentTaskState = TASKSTATE_FAILURE;
                 }
             }
-            
-            if(_currentTaskState == TASKSTATE_FAILURE)
-            {
-                reportTaskState();
-                state load_next_test;
-            }
-            else if(_currentTaskState == TASKSTATE_SUCCESS)
-                loadNextTask();
         }
         else if(currentActionType == ACTION_SEND)
         {
@@ -901,21 +812,13 @@ state run_test
                 }
                 else
                 {
-                    logVerbose("Sending: \"" + _p1 + "\" on channel: \"" + _p2 + "\"");
+                    logVerbose("Sending: \"" + _p3 + "\" on channel: \"" + _p2 + "\"");
 
                     llRegionSayTo((key)_p1, (integer)_p2, _p3);
                     _sendTime = llGetTime();
                     _currentTaskState = TASKSTATE_SUCCESS;
                 }
             }
-            
-            if(_currentTaskState == TASKSTATE_FAILURE)
-            {
-                reportTaskState();
-                state load_next_test;
-            }
-            else if(_currentTaskState == TASKSTATE_SUCCESS)
-                loadNextTask();
         }
         else if(currentActionType == ACTION_RELAY)
         {
@@ -940,14 +843,6 @@ state run_test
                     _currentTaskState = TASKSTATE_SUCCESS;
                 }
             }
-            
-            if(_currentTaskState == TASKSTATE_FAILURE)
-            {
-                reportTaskState();
-                state load_next_test;
-            }
-            else if(_currentTaskState == TASKSTATE_SUCCESS)
-                loadNextTask();
         }
         else if(currentActionType == ACTION_EXPECT)
         {
@@ -992,15 +887,14 @@ state run_test
                     }
                 }
             }
-
-
-            if(_currentTaskState == TASKSTATE_FAILURE)
-            {
-                reportTaskState();
-                state load_next_test;
-            }
-            else if(_currentTaskState == TASKSTATE_SUCCESS)
-                loadNextTask();
         }
+
+        if(_currentTaskState == TASKSTATE_FAILURE)
+        {
+            reportTaskState();
+            state load_next_test;
+        }
+        else if(_currentTaskState == TASKSTATE_SUCCESS)
+            loadNextTask();
     }
 }
