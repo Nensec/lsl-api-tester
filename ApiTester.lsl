@@ -110,13 +110,22 @@
 #define EXPECT_TYPE_SEND 1
 #define EXPECT_TYPE_RELAY 2
 
+#define COMMAND_LOAD load
+#define COMMAND_RELOAD reload
+#define COMMAND_START start
+#define COMMAND_SUITES suites
+#define COMMAND_MEM mem
+#define COMMAND_STOP stop
+
+#define INVALID_PLACEHOLDER JSON_INVALID
+
 #define DEFAULT_PLACEHOLDERS \
         llLinksetDataWrite("AV", llGetOwner()); \
         llLinksetDataWrite("TESTCHANNEL", (string)TEST_CHANNEL);
 
 #define COMMON_ACTIONS \
-        llLinksetDataWrite("C_REZ_DUMMY", DEFER_STR({"n": "Rez dummy","a": ACTION_REZ,"p": ["DUMMY", 2.5]})); \
-        llLinksetDataWrite("C_ATTACH_DUMMY", DEFER_STR({"n": "Attach dummy","a": ACTION_ATTACH,"p": ["ATTACH"]}));
+        llLinksetDataWrite("C_REZ_DUMMY", DEFER_STR({"n":"Rez dummy","a":ACTION_REZ,"p":["DUMMY",2.5]})); \
+        llLinksetDataWrite("C_ATTACH_DUMMY", DEFER_STR({"n":"Attach dummy","a":ACTION_ATTACH,"p":["ATTACH"]}));
 
 string _currentSuite;
 list _tests = []; // Currently loaded test suite
@@ -174,8 +183,14 @@ string getParameter(string param)
             param = "";
         }
 
-        result += llLinksetDataRead(placeholder);
-        i = llSubStringIndex(param, "$");
+        list foundKeys = llLinksetDataFindKeys("^" + placeholder + "$", 0, 0);
+        if(foundKeys)
+        {
+            result += llLinksetDataRead(placeholder);
+            i = llSubStringIndex(param, "$");
+        }
+        else
+            return INVALID_PLACEHOLDER;
     }
 
     return result + param;
@@ -233,7 +248,7 @@ loadNextTask()
         _currentTaskState = TASKSTATE_IDLE;
         _currentTaskFailureMessage = "";
 
-        logInfo("Next task is: " + llJsonGetValue(_currentTaskData, ["a"]));
+        logInfo("Next task is: " + llJsonGetValue(_currentTaskData, ["n"]));
     }
 }
 
@@ -310,6 +325,82 @@ killOtherScripts()
     }
 }
 
+commandHandler(string message)
+{
+    list parts = llParseString2List(message, [" "], []);
+    string cmd = (string)parts[0];
+    if(cmd == DEFER_STR(COMMAND_RELOAD))
+        loadNotecards();
+    else if(cmd == DEFER_STR(COMMAND_LOAD) && (string)parts[1] != "")
+    {
+        string name = (string)parts[1];
+        string json = llLinksetDataRead("NC_" + name);
+        if(llJsonValueType(json, []) != JSON_OBJECT)
+            log("There is no suite called \"" + name + "\"" + DEFER_STR(View available suits using DEFER_STR(/COMMAND_CHANNEL COMMAND_SUITES)));
+        else
+        {
+            log("Loading test suite \"" + llJsonGetValue(json, ["name"]) + "\"");
+            _tests = [];
+            killOtherScripts();
+            integer i;
+            integer len;
+            list jsonList = llJson2List(llJsonGetValue(json, ["commonActions"]));
+            list jsonItem;
+            len = llGetListLength(jsonList);
+            for(i = 0; i < len; i++)
+            {
+                jsonItem = llJson2List((string)jsonList[i]);
+                llLinksetDataWrite("C_" + (string)jsonItem[0], (string)jsonItem[1]);
+            }
+            jsonList = llJson2List(llJsonGetValue(json, ["tests"]));
+            len = llGetListLength(jsonList);
+            for(i = 0; i < len; i++)
+            {
+                jsonItem = llJson2List((string)jsonList[i]);
+                llLinksetDataWrite("T_" + (string)jsonItem[0], (string)jsonItem[1]);
+                _tests += [(string)jsonItem[0]];
+            }
+            _currentSuite = llJsonGetValue(json, ["name"]);
+            if(llGetInventoryType(name + "_PH") == INVENTORY_SCRIPT)
+            {
+                llSetScriptState(name + "_PH", TRUE);
+                llResetOtherScript(name + "_PH");
+            }
+            log(DEFER_STR(Loading finished. Use the command DEFER_STR(/COMMAND_CHANNEL COMMAND_START) to start the test suite));
+        }
+    }
+    else if(cmd == DEFER_STR(COMMAND_START))
+    {
+        if(_currentSuite)
+        {
+            log("Starting test suite.");
+            if(TRUE) state load_next_test;
+        }
+        else
+            log(DEFER_STR(There is no suite selected. Run the following command to load a test suite: DEFER_STR(/COMMAND_CHANNEL COMMAND_LOAD <name>)));
+    }
+    else if(cmd == DEFER_STR(COMMAND_SUITES))
+    {
+        list suites = llLinksetDataFindKeys("^NC_.*$", 0, 0);
+        if(suites)
+        {
+            log("Test suites available:");
+            integer i;
+            integer len = llGetListLength(suites);
+            string json;
+            for(i = 0; i < len; i++)
+            {
+                json = llLinksetDataRead((string)suites[i]);
+                log("    [" + llGetSubString((string)suites[i], 3, -1) + "] " + llJsonGetValue(json, ["name"]) + " (v" + llJsonGetValue(json, ["version"]) +")");
+            }
+        }
+        else
+            log(DEFER_STR(No suites found in LSD. Insert notecards with test data and use: DEFER_STR(/COMMAND_CHANNEL COMMAND_RELOAD)));
+    }
+    else if(cmd == DEFER_STR(COMMAND_MEM))
+        printMemory();
+}
+
 default
 {
     state_entry()
@@ -319,10 +410,12 @@ default
         logInfo("Wiping LSD.");
         llLinksetDataReset();
 
+        logVerbose("Loading placeholders into LSD..");
         SETUPPLACEHOLDERS
+        logVerbose("Loading common actions into LSD..");
         COMMON_ACTIONS
 #ifdef VERBOSE
-        logVerbose("Placeholders saved in LSD:");
+        logVerbose("Data saved in LSD:");
         list keys = llLinksetDataListKeys(0, 0);
         for(;keys;keys=llDeleteSubList(keys,0,0))
             llOwnerSay("    " + (string)keys[0] + ": " + llLinksetDataRead((string)keys[0]));
@@ -384,80 +477,18 @@ default
 
     listen(integer channel, string name, key id, string message)
     {
-        list parts = llParseString2List(message, [" "], []);
-        string cmd = (string)parts[0];
-        if(cmd == "reload")
-            loadNotecards();
-        else if(cmd == "load" && (string)parts[1] != "")
-        {
-            string name = (string)parts[1];
-            string json = llLinksetDataRead("NC_" + name);
-            if(llJsonValueType(json, []) != JSON_OBJECT)
-                log("There is no suite called \"" + name + "\"" + DEFER_STR(View available suits using DEFER_STR(/COMMAND_CHANNEL suites)));
-            else
-            {
-                log("Loading test suite \"" + llJsonGetValue(json, ["name"]) + "\"");
-                _tests = [];
-                killOtherScripts();
-                integer i;
-                integer len;
-                list jsonList = llJson2List(llJsonGetValue(json, ["commonActions"]));
-                list jsonItem;
-                len = llGetListLength(jsonList);
-                for(i = 0; i < len; i++)
-                {
-                    jsonItem = llJson2List((string)jsonList[i]);
-                    llLinksetDataWrite("C_" + (string)jsonItem[0], (string)jsonItem[1]);
-                }
-                jsonList = llJson2List(llJsonGetValue(json, ["tests"]));
-                len = llGetListLength(jsonList);
-                for(i = 0; i < len; i++)
-                {
-                    jsonItem = llJson2List((string)jsonList[i]);
-                    llLinksetDataWrite("T_" + (string)jsonItem[0], (string)jsonItem[1]);
-                    _tests += [(string)jsonItem[0]];
-                }
-                _currentSuite = llJsonGetValue(json, ["name"]);
-                if(llGetInventoryType(name + "_PH") == INVENTORY_SCRIPT)
-                {
-                    llSetScriptState(name + "_PH", TRUE);
-                    llResetOtherScript(name + "_PH");
-                }
-                log(DEFER_STR(Loading finished. Use the command DEFER_STR(/COMMAND_CHANNEL start) to start the test suite));
-            }
-        }
-        else if(cmd == "start")
-        {
-            if(_currentSuite)
-                state load_next_test;
-            else
-                log(DEFER_STR(There is no suite selected. Run the following command to load a test suite: DEFER_STR(/COMMAND_CHANNEL load <name>)));
-        }
-        else if(cmd == "suites")
-        {
-            list suites = llLinksetDataFindKeys("^NC_.*$", 0, 0);
-            if(suites)
-            {
-                log("Test suites available:");
-                integer i;
-                integer len = llGetListLength(suites);
-                string json;
-                for(i = 0; i < len; i++)
-                {
-                    json = llLinksetDataRead((string)suites[i]);
-                    log("    [" + llGetSubString((string)suites[i], 3, -1) + "] " + llJsonGetValue(json, ["name"]) + " (v" + llJsonGetValue(json, ["version"]) +")");
-                }
-            }
-            else
-                log(DEFER_STR(No suites found in LSD. Insert notecards with test data and use: DEFER_STR(/COMMAND_CHANNEL reload)));
-        }
-        else if(cmd == "mem")
-            printMemory();
+        commandHandler(message);
     }
 
     touch_start(integer num_detected)
     {
-        log("Starting test suite.");
+        if(_currentSuite)
+        {
+            log("Starting test suite.");
+            state load_next_test;
+        }
+        else
+            log(DEFER_STR(There is no suite selected. Run the following command to load a test suite: DEFER_STR(/COMMAND_CHANNEL load <name>)));
         state load_next_test;
     }
 
@@ -516,6 +547,11 @@ state report
             }
 #endif
         }
+    }
+
+    listen(integer channel, string name, key id, string message)
+    {
+        commandHandler(message);
     }
 
     on_rez(integer start_param)
@@ -703,6 +739,14 @@ state run_test
                 return;
             }
         }
+        else if(channel == COMMAND_CHANNEL)
+        {
+            if(message == DEFER_STR(COMMAND_STOP))
+            {
+                _activeTest = llGetListLength(_tests);
+                _currentTaskState = TASKSTATE_FAILURE;
+            }
+        }
 
         _receivedMessage += [message, channel, llGetTime()];
     }
@@ -720,11 +764,48 @@ state run_test
         if(_activeTestState == TESTSTATE_SUCCESS || _activeTestState == TESTSTATE_FAILURE)
             state load_next_test;
 
-        list params = llJson2List(llJsonGetValue(_currentTaskData, ["p"]));
-        _p1 = getParameter((string)params[0]);
-        _p2 = getParameter((string)params[1]);
-        _p3 = getParameter((string)params[2]);
-        _p4 = getParameter((string)params[3]);
+        if(_currentTaskState == TASKSTATE_IDLE)
+        {
+            list placeholderChecks = [];
+            list params = llJson2List(llJsonGetValue(_currentTaskData, ["p"]));
+
+            // Get parameters and replace placeholders, check if placeholder subsitution was succesful and if not fail the test
+            _p1 = getParameter((string)params[0]);
+            if(_p1 == INVALID_PLACEHOLDER)
+            {
+                logInfo("Placeholder in p1 is invalid.");
+                placeholderChecks += [(string)params[0]];            
+            }
+            _p2 = getParameter((string)params[1]);
+            if(_p2 == INVALID_PLACEHOLDER)
+            {
+                logInfo("Placeholder in p2 is invalid.");
+                placeholderChecks += [(string)params[1]];
+            }
+            _p3 = getParameter((string)params[2]);
+            if(_p3 == INVALID_PLACEHOLDER)
+            {
+                logInfo("Placeholder in p3 is invalid.");
+                placeholderChecks += [(string)params[2]];
+            }
+            _p4 = getParameter((string)params[3]);
+            if(_p4 == INVALID_PLACEHOLDER)
+            {
+                logInfo("Placeholder in p4 is invalid.");
+                placeholderChecks += [(string)params[3]];
+            }
+
+            logVerbose("Parameters: p1: \"" + _p1 + "\" p2: \"" + _p2 + "\" p3: \"" + _p3 + "\" p4: \"" + _p4 + "\"");
+            if(placeholderChecks)
+            {
+                logInfo("There was a problem with a placeholder.");
+                _currentTaskState = TASKSTATE_FAILURE;
+                if(llGetListLength(placeholderChecks) > 1)
+                    _currentTaskFailureMessage = "Placeholders were not found in LSD: " + llDumpList2String(placeholderChecks, ", ");
+                else
+                    _currentTaskFailureMessage = "Placeholder not found in LSD: " + (string)placeholderChecks[0];
+            }
+        }
 
         integer currentActionType = (integer)llJsonGetValue(_currentTaskData, ["a"]);
         if(currentActionType == ACTION_REZ || currentActionType == ACTION_ATTACH)
