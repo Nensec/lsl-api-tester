@@ -571,7 +571,6 @@ default
         }
         else
             log(DEFER_STR(There is no suite selected. Run the following command to load a test suite: DEFER_STR(/COMMAND_CHANNEL load <name>)));
-        state load_next_test;
     }
 
     on_rez(integer start_param)
