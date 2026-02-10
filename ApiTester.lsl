@@ -356,7 +356,7 @@ loadNotecards()
     _notecardQueries = [];
     _currentSuite = _;
 
-    llLinksetDataDeleteFound("NC_", _);
+    llLinksetDataDeleteFound("^NC_.*$", _);
 
     integer count = llGetInventoryNumber(INVENTORY_NOTECARD);
     if(count > 1)
@@ -390,10 +390,11 @@ killOtherScripts()
 {
     integer count = llGetInventoryNumber(INVENTORY_SCRIPT);
     string name;
+    string thisScriptName = llGetScriptName();
     while(count--) // Kill other scripts in the tester
     {
         name = llGetInventoryName(INVENTORY_SCRIPT, count);
-        if(name != llGetScriptName())
+        if(name != thisScriptName)
             llSetScriptState(name, FALSE);
     }
 }
@@ -412,6 +413,8 @@ commandHandler(string message)
             log("There is no suite called \"" + name + "\"" + DEFER_STR(View available suites using DEFER_STR(/COMMAND_CHANNEL COMMAND_SUITES)));
         else
         {
+            llLinksetDataDeleteFound("^(C|T|R)_.*$", _);
+
             log("Loading test suite \"" + llJsonGetValue(json, ["name"]) + "\"");
             _tests = [];
             killOtherScripts();
@@ -447,6 +450,7 @@ commandHandler(string message)
         if(_currentSuite)
         {
             log("Starting test suite.");
+            llLinksetDataDeleteFound("^R_.*$", _);
             if(TRUE) state load_next_test;
         }
         else
@@ -744,17 +748,6 @@ state run_test
 
     state_exit()
     {
-        _receivedMessage = [];
-
-        _currentTaskData = "";
-        _currentTaskFailureMessage = "";
-        _currentTask = 0;
-
-        _rezTime = 0;
-        _askTime = 0;
-        _relayTime = 0;
-        _sendTime = 0;
-
         integer i;
         integer len;
         if(_rezzedDummies)
@@ -772,7 +765,8 @@ state run_test
 
         list actions = getTaskActions();
 
-        string testResult = llJsonSetValue("{}", ["n"], (string)_tests[_activeTest]);
+        string testName = (string)_tests[_activeTest];
+        string testResult = llJsonSetValue("{}", ["n"], testName);
         string taskResult;
         if(_activeTestState == TESTSTATE_SUCCESS)        
             testResult = llJsonSetValue(testResult, ["r"], "Success");
@@ -798,7 +792,18 @@ state run_test
             testResult = llJsonSetValue(testResult, ["t", JSON_APPEND], taskResult);
         }
 
-        llLinksetDataWrite("R_" + (string)_tests[_activeTest], testResult);
+        llLinksetDataWrite("R_" + testName, testResult);
+
+        _receivedMessage = [];
+
+        _currentTaskData = "";
+        _currentTaskFailureMessage = "";
+        _currentTask = 0;
+
+        _rezTime = 0;
+        _askTime = 0;
+        _relayTime = 0;
+        _sendTime = 0;
     }
 
     listen(integer channel, string name, key id, string message)
@@ -1019,12 +1024,6 @@ state run_test
                 else if((integer)_p4 == EXPECT_TYPE_RELAY)
                     timeToCheck = _relayTime;
 
-                if((timeToCheck + (integer)_p3) > llGetTime())
-                {
-                    _currentTaskFailureMessage = "Unable to find \"" + _p2 + "\" among messages received.";
-                    _currentTaskState = TASKSTATE_FAILURE;
-                }
-
                 integer i;
                 integer len = llGetListLength(_receivedMessage);
                 logVerbose("Received messages at this point: " + llDumpList2String(_receivedMessage, ", "));
@@ -1048,6 +1047,15 @@ state run_test
                                 i = len;
                             }
                         }
+                    }
+                }
+
+                if(_currentTask != TASKSTATE_SUCCESS)
+                {
+                    if(llGetTime() > (timeToCheck + (integer)_p3))
+                    {
+                        _currentTaskFailureMessage = "Unable to find \"" + _p2 + "\" among messages received.";
+                        _currentTaskState = TASKSTATE_FAILURE;
                     }
                 }
             }
