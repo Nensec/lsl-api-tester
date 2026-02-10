@@ -534,7 +534,7 @@ default
                 {
                     llLinksetDataWrite("NC_" + name, notecardTestData);
                     string _queryId = (string)llGetNotecardLine((string)parts[0], (integer)parts[2]);
-                    llListReplaceList(_notecardQueries, [name + ":" + _queryId + ":" + (string)lineIndex], i, i);
+                    _notecardQueries = llListReplaceList(_notecardQueries, [name + ":" + _queryId + ":" + (string)lineIndex], i, i);
                 }
 
                 if (data == EOF)
@@ -549,7 +549,7 @@ default
                     else
                         log("Notecard \"" + name + DEFER_STR(" loaded. Activate it's suite using "/COMMAND_CHANNEL load) + " " + name + "\"");
                     
-                    _notecardQueries = llList2List(_notecardQueries, 0, i) + llList2List(_notecardQueries, i + 1, -1);
+                    _notecardQueries = llDeleteSubList(_notecardQueries, i, i);
                 }
 
                 return;
