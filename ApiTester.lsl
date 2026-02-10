@@ -268,10 +268,10 @@ string getParameter(string param)
             param = "";
         }
 
-        list foundKeys = llLinksetDataFindKeys("^" + placeholder + "$", 0, 0);
-        if(foundKeys)
+        string lsdPlaceholder = llLinksetDataRead(placeholder);
+        if(lsdPlaceholder)
         {
-            result += llLinksetDataRead(placeholder);
+            result += lsdPlaceholder;
             i = llSubStringIndex(param, "$");
         }
         else
