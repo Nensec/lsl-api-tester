@@ -584,6 +584,7 @@ state report
     state_entry()
     {
         log("Testsuite has finished. Touch me to get the output, or hold for three seconds to reset.");
+        llListen(COMMAND_CHANNEL, _, llGetOwner(), _);
     }
 
     touch_start(integer num_detected)
@@ -717,6 +718,7 @@ state run_test
         logVerbose("Initializing test.");
         _activeTestState = TESTSTATE_INITIALIZING;
         llListen(TEST_CHANNEL, _, NULL_KEY, _);
+        llListen(COMMAND_CHANNEL, _, llGetOwner(), _);
 
         integer i;
         list actions = getTaskActions();
