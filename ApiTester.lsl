@@ -228,9 +228,9 @@ list _rezzedDummies = []; // All of the dummies rezzed during the current test
 
 // Parameters are global, this is to lower memory fragmentation
 string  _p1; // Parameter 1 of current action
-string  _p2; // Parameter 1 of current action
-string  _p3; // Parameter 1 of current action
-string  _p4; // Parameter 1 of current action
+string  _p2; // Parameter 2 of current action
+string  _p3; // Parameter 3 of current action
+string  _p4; // Parameter 4 of current action
 
 float _rezTime; // When was the last REZ
 float _sendTime; // When was the last SEND
@@ -386,18 +386,6 @@ saveRezzedDummy(key id)
     _currentTaskState = TASKSTATE_SUCCESS;
 }
 
-printMemory()
-{
-    integer memused = llGetUsedMemory();
-    integer memmax = llGetMemoryLimit();
-    integer memfree = llGetFreeMemory();
-    integer memperc = (integer)(100.0 * (float)memused/memmax);
-    integer lsdAvailable = llLinksetDataAvailable();
-
-    log("Memory Used: " + (string)memused + "\nMemory Free: " + (string)memfree + "\nMemory Limit: " + (string)memmax + "\nPercentage of Memory Usage: " + (string)memperc + "%.");
-    log("LSD available: " + (string)lsdAvailable + " / 131072 (" + (string)((integer)(100 * (float)lsdAvailable/131072)) + "%).");
-}
-
 killOtherScripts()
 {
     integer count = llGetInventoryNumber(INVENTORY_SCRIPT);
@@ -421,7 +409,7 @@ commandHandler(string message)
         string name = (string)parts[1];
         string json = llLinksetDataRead("NC_" + name);
         if(llJsonValueType(json, []) != JSON_OBJECT)
-            log("There is no suite called \"" + name + "\"" + DEFER_STR(View available suits using DEFER_STR(/COMMAND_CHANNEL COMMAND_SUITES)));
+            log("There is no suite called \"" + name + "\"" + DEFER_STR(View available suites using DEFER_STR(/COMMAND_CHANNEL COMMAND_SUITES)));
         else
         {
             log("Loading test suite \"" + llJsonGetValue(json, ["name"]) + "\"");
@@ -483,7 +471,16 @@ commandHandler(string message)
             log(DEFER_STR(No suites found in LSD. Insert notecards with test data and use: DEFER_STR(/COMMAND_CHANNEL COMMAND_RELOAD)));
     }
     else if(cmd == DEFER_STR(COMMAND_MEM))
-        printMemory();
+    {
+        integer memused = llGetUsedMemory();
+        integer memmax = llGetMemoryLimit();
+        integer memfree = llGetFreeMemory();
+        integer memperc = (integer)(100.0 * (float)memused/memmax);
+        integer lsdAvailable = llLinksetDataAvailable();
+
+        log("Memory Used: " + (string)memused + "\nMemory Free: " + (string)memfree + "\nMemory Limit: " + (string)memmax + "\nPercentage of Memory Usage: " + (string)memperc + "%.");
+        log("LSD available: " + (string)lsdAvailable + " / 131072 (" + (string)((integer)(100 * (float)lsdAvailable/131072)) + "%).");
+    }
 }
 
 // -- States
@@ -506,8 +503,6 @@ default
         list keys = llLinksetDataListKeys(0, 0);
         for(;keys;keys=llDeleteSubList(keys,0,0))
             llOwnerSay("    " + (string)keys[0] + ": " + llLinksetDataRead((string)keys[0]));
-        
-        printMemory();
 #endif
         loadNotecards();
 
