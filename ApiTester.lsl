@@ -744,17 +744,6 @@ state run_test
 
     state_exit()
     {
-        _receivedMessage = [];
-
-        _currentTaskData = "";
-        _currentTaskFailureMessage = "";
-        _currentTask = 0;
-
-        _rezTime = 0;
-        _askTime = 0;
-        _relayTime = 0;
-        _sendTime = 0;
-
         integer i;
         integer len;
         if(_rezzedDummies)
@@ -772,7 +761,8 @@ state run_test
 
         list actions = getTaskActions();
 
-        string testResult = llJsonSetValue("{}", ["n"], (string)_tests[_activeTest]);
+        string testName = (string)_tests[_activeTest]
+        string testResult = llJsonSetValue("{}", ["n"], testName);
         string taskResult;
         if(_activeTestState == TESTSTATE_SUCCESS)        
             testResult = llJsonSetValue(testResult, ["r"], "Success");
@@ -798,7 +788,18 @@ state run_test
             testResult = llJsonSetValue(testResult, ["t", JSON_APPEND], taskResult);
         }
 
-        llLinksetDataWrite("R_" + (string)_tests[_activeTest], testResult);
+        llLinksetDataWrite("R_" + testName, testResult);
+
+        _receivedMessage = [];
+
+        _currentTaskData = "";
+        _currentTaskFailureMessage = "";
+        _currentTask = 0;
+
+        _rezTime = 0;
+        _askTime = 0;
+        _relayTime = 0;
+        _sendTime = 0;
     }
 
     listen(integer channel, string name, key id, string message)
