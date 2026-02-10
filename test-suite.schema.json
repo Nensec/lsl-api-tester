@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema",
+  "description": "This schema defines how a test suite is properly formatted",
+  "type": "object",
+  "required": ["name", "version", "tests"],
+  "properties": {
+    "name": { "type": "string", "description": "The name of your test suite" },
+    "version": {
+      "type": "string",
+      "description": "The version of your test suite, for example the version of your API"
+    },
+    "tests": {
+      "type": "array",
+      "description": "The array of tests",
+      "items": {
+        "type": "object",
+        "description": "The object that descibes the test",
+        "patternProperties": {
+          "^.*$": {
+            "type": "object",
+            "description": "The object that describes a test",
+            "required": ["a"],
+            "properties": {
+              "d": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "This array defines the list of tests by their name that this test is dependant on"
+              },
+              "a": {
+                "type": "array",
+                "description": "The array that holds the individual tasks to perform as part of this test, this can either be a string that points to a Common Action or an object that defines the task",
+                "items": {
+                  "type": ["string", "object"],
+                  "description": "This object defines a task",
+                  "required": ["n", "a"],
+                  "properties": {
+                    "n": {
+                      "type": "string",
+                      "description": "The name of the task"
+                    },
+                    "a": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 5,
+                      "description": "Which task to perform: 0=SEND, 1=ASK, 2=REZ, 3=EXPECT, 4=RELAY, 5=ATTACH"
+                    },
+                    "p": {
+                      "type": "array",
+                      "description": "The parameters for this task",
+                      "items": { "type": ["string", "number"] },
+                      "maxItems": 4
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "commonActions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "patternProperties": {
+          "^.*$": {
+            "type": "object",
+            "description": "This object defines a task",
+            "required": ["n", "a"],
+            "properties": {
+              "n": { "type": "string", "description": "The name of the task" },
+              "a": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 5,
+                "description": "Which task to perform: 0=SEND, 1=ASK, 2=REZ, 3=EXPECT, 4=RELAY, 5=ATTACH"
+              },
+              "p": {
+                "type": "array",
+                "description": "The parameters for this task",
+                "items": { "type": ["string", "number"] },
+                "maxItems": 4
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
