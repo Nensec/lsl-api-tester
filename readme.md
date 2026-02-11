@@ -7,6 +7,7 @@ Feel free to modify and redistribute this script however you please, I simply as
 - v1.0: Initial version - Voisin (Nensec Resident)
 - v1.1: Removed Boost framework and made tester completely notecard based, removing the need for a runner script - Voisin (Nensec Resident)
 - v1.1.1: Various bug fixes and optimizations - Voisin (Nensec Resident)
+- v1.1.2: Fixed bug in EXPECT. Removed touch events in favor of commands - Voisin (Nensec Resident)
 
 ## What is it
 
