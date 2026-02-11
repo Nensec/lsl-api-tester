@@ -788,18 +788,6 @@ state run_test
         _askTime = 0;
         _relayTime = 0;
         _sendTime = 0;
-        llLinksetDataWrite("R_" + testName, testResult);
-
-        _receivedMessage = [];
-
-        _currentTaskData = "";
-        _currentTaskFailureMessage = "";
-        _currentTask = 0;
-
-        _rezTime = 0;
-        _askTime = 0;
-        _relayTime = 0;
-        _sendTime = 0;
     }
 
     listen(integer channel, string name, key id, string message)
@@ -1046,7 +1034,7 @@ state run_test
                     }
                 }
 
-                if(_currentTask != TASKSTATE_SUCCESS)
+                if(_currentTaskState != TASKSTATE_SUCCESS)
                 {
                     if(llGetTime() > (timeToCheck + (integer)_p3))
                     {
