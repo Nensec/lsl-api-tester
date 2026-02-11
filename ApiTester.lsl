@@ -199,6 +199,8 @@
 #define COMMAND_SUITES suites
 #define COMMAND_MEM mem
 #define COMMAND_STOP stop
+#define COMMAND_REPORT report
+#define COMMAND_RESET reset
 
 #define INVALID_PLACEHOLDER JSON_INVALID
 
@@ -213,7 +215,7 @@
 // -- Global variables
 
 string _currentSuite;
-list _tests = []; // Currently loaded test suite
+list _tests = []; // Currently loaded test suite, or notecard queries (to save memory)
 
 integer _activeTest = -1; // Index of current test
 integer _activeTestState = TESTSTATE_IDLE; // Current state of the test
@@ -236,10 +238,6 @@ float _rezTime; // When was the last REZ
 float _sendTime; // When was the last SEND
 float _relayTime; // when was the last RELAY
 float _askTime; // when was the last ASK
-
-float _touchTime; // When was the tester last touched
-
-list _notecardQueries = []; // active notecard queries
 
 // -- Helper functions
 
@@ -353,7 +351,7 @@ list getTaskActions()
 
 loadNotecards()
 {
-    _notecardQueries = [];
+    _tests = [];
     _currentSuite = _;
 
     llLinksetDataDeleteFound("^NC_.*$", _);
@@ -372,7 +370,7 @@ loadNotecards()
     {
         name = llGetInventoryName(INVENTORY_NOTECARD, count);
         queryId = (string)llGetNotecardLine(name, 0);
-        _notecardQueries += [name + ":" + queryId + ":0"];
+        _tests += [name + ":" + queryId + ":0"];
         logVerbose("Parsing notecard: \"" + name + "\".");
     }
 }
@@ -485,129 +483,16 @@ commandHandler(string message)
         log("Memory Used: " + (string)memused + "\nMemory Free: " + (string)memfree + "\nMemory Limit: " + (string)memmax + "\nPercentage of Memory Usage: " + (string)memperc + "%.");
         log("LSD available: " + (string)lsdAvailable + " / 131072 (" + (string)((integer)(100 * (float)lsdAvailable/131072)) + "%).");
     }
-}
-
-// -- States
-
-default
-{
-    state_entry()
+    else if(cmd == DEFER_STR(COMMAND_REPORT))
     {
-        killOtherScripts();
-
-        logInfo("Wiping LSD.");
-        llLinksetDataReset();
-
-        logVerbose("Loading placeholders into LSD..");
-        DEFAULT_PLACEHOLDERS
-        logVerbose("Loading common actions into LSD..");
-        COMMON_ACTIONS
-#ifdef VERBOSE
-        logVerbose("Data saved in LSD:");
-        list keys = llLinksetDataListKeys(0, 0);
-        for(;keys;keys=llDeleteSubList(keys,0,0))
-            llOwnerSay("    " + (string)keys[0] + ": " + llLinksetDataRead((string)keys[0]));
-#endif
-        loadNotecards();
-
-        llListen(COMMAND_CHANNEL, _, llGetOwner(), _);
-    }
-
-    dataserver(key queryid, string data)
-    {
-        integer i;
-        integer len = llGetListLength(_notecardQueries);
-        for(i = 0; i < len; i++)
-        {
-            list parts = llParseString2List((string)_notecardQueries[i], [":"], []);
-            if((key)parts[1] == queryid)
-            {
-                integer lineIndex = (integer)parts[2];
-                string name = (string)parts[0];
-                string notecardTestData = llLinksetDataRead("NC_" + name);
-                while (data != EOF && data != NAK) {
-                    if(data != "")
-                    {
-                        data = llStringTrim(data, STRING_TRIM);
-                        notecardTestData += data;
-                    }
-                    data = llGetNotecardLineSync((string)parts[0], ++lineIndex);
-                }
-
-                if (data == NAK)
-                {
-                    llLinksetDataWrite("NC_" + name, notecardTestData);
-                    string _queryId = (string)llGetNotecardLine((string)parts[0], (integer)parts[2]);
-                    _notecardQueries = llListReplaceList(_notecardQueries, [name + ":" + _queryId + ":" + (string)lineIndex], i, i);
-                }
-
-                if (data == EOF)
-                {
-                    llLinksetDataWrite("NC_" + name, notecardTestData);
-                    //llLinksetDataDelete("NC_" + name);
-                    if(llJsonValueType(notecardTestData, []) == JSON_INVALID)
-                    {
-                        log("Notecard \"" + name + "\" does not contain valid JSON.");
-                        llLinksetDataDelete("NC_" + name);
-                    }
-                    else
-                        log("Notecard \"" + name + DEFER_STR(" loaded. Activate it's suite using "/COMMAND_CHANNEL load) + " " + name + "\"");
-                    
-                    _notecardQueries = llDeleteSubList(_notecardQueries, i, i);
-                }
-
-                return;
-            }
-        }
-    }
-
-    listen(integer channel, string name, key id, string message)
-    {
-        commandHandler(message);
-    }
-
-    touch_start(integer num_detected)
-    {
-        if(_currentSuite)
-        {
-            log("Starting test suite.");
-            state load_next_test;
-        }
-        else
-            log(DEFER_STR(There is no suite selected. Run the following command to load a test suite: DEFER_STR(/COMMAND_CHANNEL load <name>)));
-    }
-
-    on_rez(integer start_param)
-    {
-        llResetScript();
-    }
-}
-
-state report
-{
-    state_entry()
-    {
-        log("Testsuite has finished. Touch me to get the output, or hold for three seconds to reset.");
-        llListen(COMMAND_CHANNEL, _, llGetOwner(), _);
-    }
-
-    touch_start(integer num_detected)
-    {
-        _touchTime = llGetTime();
-    }
-
-    touch(integer num_detected)
-    {
-        if(_touchTime != 0 && (_touchTime + 3.0) < llGetTime())
-            llResetScript();
-    }
-
-    touch_end(integer num_detected)
-    {
-        _touchTime = 0;
         list testData = llLinksetDataFindKeys("^R_.*$", 0, 0);
         integer i;
         integer len = llGetListLength(testData);
+        if(len == 0)
+        {
+            log("There are no test results available.");
+            return;
+        }
         for(i = 0; i < len; i++)
         {
             string testResult = llLinksetDataRead((string)testData[i]);
@@ -633,6 +518,105 @@ state report
             }
 #endif
         }
+    }
+    else if(cmd == DEFER_STR(COMMAND_RESET))
+        llResetScript();
+}
+
+// -- States
+
+default
+{
+    state_entry()
+    {
+        killOtherScripts();
+
+        logInfo("Wiping LSD.");
+        llLinksetDataReset();
+
+        logVerbose("Loading placeholders into LSD..");
+        DEFAULT_PLACEHOLDERS
+        logVerbose("Loading common actions into LSD..");
+        COMMON_ACTIONS
+#ifdef VERBOSE
+        logVerbose("Data saved in LSD:");
+        list keys = llLinksetDataListKeys(0, 0);
+        while(keys)
+        {
+            llOwnerSay("    " + (string)keys[0] + ": " + llLinksetDataRead((string)keys[0]));
+            keys = llDeleteSubList(keys, 0, 0);
+        }
+#endif
+        loadNotecards();
+
+        llListen(COMMAND_CHANNEL, _, llGetOwner(), _);
+    }
+
+    dataserver(key queryid, string data)
+    {
+        integer i;
+        integer len = llGetListLength(_tests);
+        for(i = 0; i < len; i++)
+        {
+            list parts = llParseString2List((string)_tests[i], [":"], []);
+            if((key)parts[1] == queryid)
+            {
+                integer lineIndex = (integer)parts[2];
+                string name = (string)parts[0];
+                string notecardTestData = llLinksetDataRead("NC_" + name);
+                while (data != EOF && data != NAK) {
+                    if(data != "")
+                    {
+                        data = llStringTrim(data, STRING_TRIM);
+                        notecardTestData += data;
+                    }
+                    data = llGetNotecardLineSync((string)parts[0], ++lineIndex);
+                }
+
+                if (data == NAK)
+                {
+                    llLinksetDataWrite("NC_" + name, notecardTestData);
+                    string _queryId = (string)llGetNotecardLine((string)parts[0], (integer)parts[2]);
+                    _tests = llListReplaceList(_tests, [name + ":" + _queryId + ":" + (string)lineIndex], i, i);
+                }
+
+                if (data == EOF)
+                {
+                    llLinksetDataWrite("NC_" + name, notecardTestData);
+                    //llLinksetDataDelete("NC_" + name);
+                    if(llJsonValueType(notecardTestData, []) == JSON_INVALID)
+                    {
+                        log("Notecard \"" + name + "\" does not contain valid JSON.");
+                        llLinksetDataDelete("NC_" + name);
+                    }
+                    else
+                        log("Notecard \"" + name + DEFER_STR(" loaded. Activate it's suite using "/COMMAND_CHANNEL load) + " " + name + "\"");
+                    
+                    _tests = llDeleteSubList(_tests, i, i);
+                }
+
+                return;
+            }
+        }
+    }
+
+    listen(integer channel, string name, key id, string message)
+    {
+        commandHandler(message);
+    }
+
+    on_rez(integer start_param)
+    {
+        llResetScript();
+    }
+}
+
+state report
+{
+    state_entry()
+    {
+        log(DEFER_STR(Testsuite has finished. Use DEFER_STR(/COMMAND_CHANNEL report) to show the test results, or DEFER_STR(/COMMAND_CHANNEL reset) to reset.));
+        llListen(COMMAND_CHANNEL, _, llGetOwner(), _);
     }
 
     listen(integer channel, string name, key id, string message)
