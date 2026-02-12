@@ -8,6 +8,7 @@ Feel free to modify and redistribute this script however you please, I simply as
 - v1.1: Removed Boost framework and made tester completely notecard based, removing the need for a runner script - Voisin (Nensec Resident)
 - v1.1.1: Various bug fixes and optimizations - Voisin (Nensec Resident)
 - v1.1.2: Fixed bug in EXPECT. Removed touch events in favor of commands - Voisin (Nensec Resident)
+- v1.2: Added new action type ASSERT - Voisin (Nensec Resident)
 
 ## What is it
 
@@ -72,9 +73,9 @@ Assert a certain value is returned since beginning of test, SEND or RELAY. If a 
     - **integer** time *(in milliseconds)*
     - **integer** type
 - Types:
-    - 0 *(Beginning of test)*
-    - 1 *(Since last SEND)*
-    - 2 *(Since last RELAY)*
+    - 0: *(Beginning of test)*
+    - 1: *(Since last SEND)*
+    - 2: *(Since last RELAY)*
 
 ### RELAY (4)
 Instructs a given Relay object to relay a message.
@@ -94,6 +95,26 @@ Attaches a Relay object. It's name gets added to LSD as a placeholder with the v
 - Names however need to be unique for each.
 - Parameters:
     - **string** name
+
+### ASSERT (6)
+Sends a message that is meant to be recived by the `<testsuite>_PH.lsl` script. It can then do any kind of custom parsing and comparison it wants.
+By default this is send via llRegionSayTo to the owner of the tester object on channel TEST_CHANNEL. However if you notice that size of the JSON is an issue for you due to the volume of messages
+you can configure the tester to instead send it via llMessageLinked instead.
+
+The message will be in JSON format, according to the scheme found in [assert.schema.json](https://github.com/Nensec/lsl-api-tester/blob/master/assert.schema.json)
+The ASSERT will be send to the processing helper script after waitTime has passed.
+
+The tester expects a message back on TEST_CHANNEL with the provided token as well as the answer of `fail` or `ok` prefixed with the `assert` command.
+The tester will wait for a maximum of 500ms for a reply back.
+Example: `assert 7321d897-ad5f-f98c-11ea-f5a56e2399ff ok`
+- Parameters:
+    - **integer** waitTime *(in milliseconds, max 5000)*
+    - **integer** channel
+    - **integer** type
+- Types:
+    - 0: *(Beginning of test)*
+    - 1: *(Since last SEND)*
+    - 2: *(Since last RELAY)*
 
 # Placeholders
 All parameters for actions have the ability to be replaced dynamically by a different value, something that is generally not known as a constant. These are called `placeholders` and you can refer to them in your actions using the `$` symbol as a prefix. The tester, by default, has two placeholders already defined that you can use:
@@ -120,27 +141,16 @@ default
 Note: the LSD is wiped on every rez and re-filled during initialization of the tester.
 
 # Tester configuration
-This is the channel that the tests and relay communicate on, all listeners are filtered by owner avatar id.
+Adjust the tester's behavior by modifying the `#define` macros at the top of the script.
 
-    #define TEST_CHANNEL -8378464
-The tester responds to various commands, this channel is used for those commands. I recommend a low number as you will be typing this yourself in chat
-
-    #define TEST_CHANNEL 9
-Should the ASK action request a reply in a clickable chat message (ASK_TYPE_CHAT), or should it show a dialog with buttons (ASK_TYPE_DIALOG)?
-
-    #define ASK_TYPE ASK_TYPE_DIALOG
-The name of the Relay object to rez when REZ is used. This object has to exist in the inventory where this tester script lives and must contain the ApiTester_Relay.lsl script.
-
-    #define DUMMY_OBJECT "Dummy"
-Adjust the rotation of the dummy object so it faces a specific direction
-
-    #define DUMMY_OBJECT_ROTATION <90.0, 270.0, 0.0> 
-The height of the dummy object so REZ places it on the floor
-
-    #define DUMMY_OBJECT_HEIGHT 0.64528
-The name of the Relay object to rez and attach when ATTACH is used. This object has to exist in the inventory where this tester script lives and must contain the ApiTester_Relay.lsl script.
-
-    #define DUMMY_ATTACH "Attach"
-See https://wiki.secondlife.com/wiki/LlAttachToAvatar for attachment points
-
-    #define DUMMY_ATTACH_POINT 35
+| Macro | Default | Description |
+| :--- | :--- | :--- |
+| `TEST_CHANNEL` | `-8378464` | Communication channel for tests/relays. Filtered by owner ID. |
+| `COMMAND_CHANNEL` | `9` | Channel for user chat commands (e.g. `/9 reload`). |
+| `ASK_TYPE` | `ASK_TYPE_DIALOG` | Use `ASK_TYPE_CHAT` for text or `ASK_TYPE_DIALOG` for buttons. |
+| `DUMMY_OBJECT` | `"Dummy"` | Name of the Relay object to rez from inventory. |
+| `DUMMY_ROTATION` | `<90, 270, 0>` | Facing direction of the rezzed dummy. |
+| `DUMMY_HEIGHT` | `0.64528` | Height offset to ensure the dummy rezes on the floor. |
+| `DUMMY_ATTACH` | `"Attach"` | Name of the object to rez and attach to the avatar. |
+| `ATTACH_POINT` | `35` | The attachment point ID used for dummies. |
+| `ASSERT_METHOD` | `ASSERT_SEND_METHOD_CHAT` | Method for ASSERT: `_CHAT`, `_LINK`, or `_PH`. |
