@@ -97,6 +97,26 @@
 // - Parameters:
 //     - string name
 
+// -- ASSERT (6)
+// Sends a message that is meant to be recived by the <testsuite>_PH.lsl script. It can then do any kind of custom parsing and comparison it wants.
+// By default this is send via llRegionSayTo to the owner of the tester object on channel TEST_CHANNEL. However if you notice that size of the JSON is an issue for you due to the volume of messages
+// you can configure the tester to instead send it via llMessageLinked instead.
+// The message will be in JSON format, according to the scheme found in assert.schema.json (this can be found on the github linked above)
+// The ASSERT will be send to the processing helper script after waitTime has passed.
+//
+// The tester expects a message back on TEST_CHANNEL with the provided token as well as the answer of "fail" or "ok" prefixed with the "assert" command.
+// The tester will wait for a maximum of 500ms for a reply back.
+// Example: assert 7321d897-ad5f-f98c-11ea-f5a56e2399ff ok
+//
+// - Parameters:
+//     - integer waitTime (in milliseconds, max 5000)
+//     - integer channel
+//     - integer type
+// - Types:
+//     - 0 (Beginning of test)
+//     - 1 (Since last SEND)
+//     - 2 (Since last RELAY)
+
 // - Placeholders
 // All parameters for actions have the ability to be replaced dynamically by a different value, something that is generally not known as a constant.
 // These are called `placeholders` and you can refer to them in your actions using the `$` symbol as a prefix. The tester, by default, has two placeholders already defined that you can use:
@@ -148,6 +168,9 @@
 #define DUMMY_ATTACH "Attach" // The name of the Relay object to rez and attach when ATTACH is used. This object has to exist in the inventory where this tester script lives and must contain the ApiTester_Relay.lsl script.
 #define DUMMY_ATTACH_POINT 35 // See https://wiki.secondlife.com/wiki/LlAttachToAvatar for attachment points
 
+#define ASSERT_SEND_METHOD ASSERT_SEND_METHOD_CHAT // The method used to send ASSERT messages to the helper script, either via chat (ASSERT_SEND_METHOD_CHAT) on channel TEST_CHANNEL or via link message (ASSERT_SEND_METHOD_LINK) or have the processing helper script decide (ASSERT_SEND_METHOD_PH). This will add additional bytecode to support both methods.
+#define ASSERT_REPLY_TIMEOUT 500 // The time how long the tester will wait for the processing helper script to reply to ASSERT
+
 // ####################################################################################
 // -- Below here should not be edited by the user unless you know what you are doing --
 // ####################################################################################
@@ -174,6 +197,7 @@
 #define ACTION_EXPECT 3
 #define ACTION_RELAY 4
 #define ACTION_ATTACH 5
+#define ACTION_ASSERT 6
 
 #define ASK_YES "Yes"
 #define ASK_NO "No"
@@ -192,6 +216,16 @@
 #define EXPECT_TYPE_BEGINNING 0
 #define EXPECT_TYPE_SEND 1
 #define EXPECT_TYPE_RELAY 2
+
+#define ASSERT_OK "ok"
+#define ASSERT_FAIL "fail"
+#define ASSERT_REPLY "assert"
+#define ASSERT_SEND_METHOD_CHAT 0
+#define ASSERT_SEND_METHOD_LINK 1
+#define ASSERT_SEND_METHOD_PH 2
+#define ASSERT_TYPE_BEGINNING 0
+#define ASSERT_TYPE_SEND 1
+#define ASSERT_TYPE_RELAY 2
 
 #define COMMAND_LOAD load
 #define COMMAND_RELOAD reload
@@ -217,12 +251,17 @@
 string _currentSuite;
 list _tests = []; // Currently loaded test suite, or notecard queries (to save memory)
 
+#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
+integer _assertSendType;
+#endif
+key _assertToken;
+
 integer _activeTest = -1; // Index of current test
 integer _activeTestState = TESTSTATE_IDLE; // Current state of the test
 
 integer _currentTask = 0; // The current task
 string _currentTaskData; // JSON data of current task
-integer _currentTaskState = TESTSTATE_IDLE; // Current state of the current task
+integer _currentTaskState = TASKSTATE_IDLE; // Current state of the current task
 string _currentTaskFailureMessage;
 
 list _receivedMessage = []; // Strided list of 3: [message, channel, timestamp]
@@ -238,6 +277,7 @@ float _rezTime; // When was the last REZ
 float _sendTime; // When was the last SEND
 float _relayTime; // when was the last RELAY
 float _askTime; // when was the last ASK
+float _assertTime; // When was the last ASSERT
 
 // -- Helper functions
 
@@ -330,6 +370,9 @@ loadNextTask()
 
         _currentTaskState = TASKSTATE_IDLE;
         _currentTaskFailureMessage = "";
+
+        _assertToken = NULL_KEY;
+        _assertTime = 0;
 
         logInfo("Next task is: " + llJsonGetValue(_currentTaskData, ["n"]));
     }
@@ -547,8 +590,10 @@ default
             keys = llDeleteSubList(keys, 0, 0);
         }
 #endif
+#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
+        llListen(TEST_CHANNEL, _, NULL_KEY, _);
+#endif
         loadNotecards();
-
         llListen(COMMAND_CHANNEL, _, llGetOwner(), _);
     }
 
@@ -602,6 +647,16 @@ default
 
     listen(integer channel, string name, key id, string message)
     {
+#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
+        if(channel == TEST_CHANNEL)
+        {
+            if(message == "asserttype chat")
+                _assertSendType = ASSERT_SEND_METHOD_CHAT;
+            else if(message == "asserttype link")
+                _assertSendType = ASSERT_SEND_METHOD_LINK;
+            return;
+        }
+#endif
         commandHandler(message);
     }
 
@@ -784,10 +839,13 @@ state run_test
         _currentTaskFailureMessage = "";
         _currentTask = 0;
 
+        _assertToken = NULL_KEY;
+
         _rezTime = 0;
         _askTime = 0;
         _relayTime = 0;
         _sendTime = 0;
+        _assertTime = 0;
     }
 
     listen(integer channel, string name, key id, string message)
@@ -795,7 +853,8 @@ state run_test
         logListener(message, channel, llGetTime());
         if(channel == TEST_CHANNEL)
         {
-            if((integer)llJsonGetValue(_currentTaskData, ["a"]) == ACTION_ASK)
+            integer currentAction = (integer)llJsonGetValue(_currentTaskData, ["a"]);
+            if(currentAction == ACTION_ASK)
             {
                 if(message == ASK_YES)
                     _currentTaskState = TASKSTATE_SUCCESS;
@@ -805,10 +864,30 @@ state run_test
                 logVerbose("ASK result: Got \"" + message + "\".");
                 return;
             }
-            else if((integer)llJsonGetValue(_currentTaskData, ["a"]) == ACTION_ATTACH)
+            else if(currentAction == ACTION_ATTACH)
             {
                 saveRezzedDummy(id);
                 return;
+            }
+            else if(currentAction == ACTION_ASSERT)
+            {
+                // assert 7321d897-ad5f-f98c-11ea-f5a56e2399ff ok
+                string cmd = llGetSubString(message, 0, 5);
+                if(cmd == ASSERT_REPLY)
+                {
+                    key token = (key)llGetSubString(message, 7, 42);
+                    if(token != NULL_KEY && token == _assertToken)
+                    {
+                        string result = llGetSubString(message, 44, -1);
+                        if(result == ASSERT_OK)
+                            _currentTaskState = TASKSTATE_SUCCESS;
+                        if(result == ASSERT_FAIL)
+                            _currentTaskState = TASKSTATE_FAILURE;
+                    }                
+                
+                    logVerbose("ASSERT result: Got \"" + message + "\".");
+                    return;
+                }
             }
         }
         else if(channel == COMMAND_CHANNEL)
@@ -1036,10 +1115,84 @@ state run_test
 
                 if(_currentTaskState != TASKSTATE_SUCCESS)
                 {
-                    if(llGetTime() > (timeToCheck + (integer)_p3))
+                    if(llGetTime() > (timeToCheck + ((float)_p3 / 1000)))
                     {
                         _currentTaskFailureMessage = "Unable to find \"" + _p2 + "\" among messages received.";
                         _currentTaskState = TASKSTATE_FAILURE;
+                    }
+                }
+            }
+        }
+        else if(currentActionType == ACTION_ASSERT)
+        {
+            if(_currentTaskState == TASKSTATE_IDLE)
+            {
+                if((integer)_p1 > 5000) // enforce 5sec max
+                    _p1 = (string)5000;
+
+                if(_assertTime == 0 && (integer)_p1 != 0)
+                    _assertTime = llGetTime();
+
+                _currentTaskState = TASKSTATE_WAITING;
+            }
+            
+            if(_currentTaskState == TASKSTATE_WAITING)
+            {
+                if(_assertToken)
+                {
+                    if(llGetTime() > (_assertTime + (ASSERT_REPLY_TIMEOUT / 1000)))
+                    {
+                        _currentTaskFailureMessage = "Did not receive a reply in time from the PH script.";
+                        _currentTaskState = TASKSTATE_FAILURE;
+                    }
+                }
+                else
+                {
+                    if(llGetTime() > (_assertTime + ((float)_p1 / 1000)))
+                    {
+                        string json = "{}";
+                        _assertToken = llGenerateKey();
+                        json = llJsonSetValue(json, ["token"], _assertToken);
+
+                        float timeToCheck = 0;
+
+                        if((integer)_p3 == ASSERT_TYPE_SEND)
+                            timeToCheck = _sendTime;
+                        else if((integer)_p3 == ASSERT_TYPE_RELAY)
+                            timeToCheck = _relayTime;
+
+                        integer i;
+                        integer len = llGetListLength(_receivedMessage);
+                        string msgJson;
+                        for(i = 0; i < len; i += 3)
+                        {
+                            msgJson = "{}";
+                            if((float)_receivedMessage[i + 2] > timeToCheck)
+                            {
+                                if((integer)_receivedMessage[i + 1] == (integer)_p2)
+                                {
+                                    msgJson = llJsonSetValue(msgJson, ["m"], (string)_receivedMessage[i]);                                
+                                    msgJson = llJsonSetValue(msgJson, ["t"], (string)_receivedMessage[i + 2]);
+
+                                    json = llJsonSetValue(json, ["msgs", JSON_APPEND], msgJson);
+                                }
+                            }
+                        }
+                        logInfo("Sending JSON message to PH script.");
+                        logVerbose("JSON: " + json);
+#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
+                        if(_assertSendType == ASSERT_SEND_METHOD_CHAT)
+#endif
+#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_CHAT || ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
+                        llRegionSayTo(llGetOwner(), TEST_CHANNEL, json);
+#endif
+#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
+                        if(_assertSendType == ASSERT_SEND_METHOD_LINK)
+#endif
+#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_LINK || ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
+                        llMessageLinked(LINK_THIS, 0, json, NULL_KEY);
+#endif
+                        _assertTime = llGetTime();
                     }
                 }
             }
