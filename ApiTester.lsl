@@ -32,6 +32,18 @@
 //  - An attachable object. ApiTester_Relay.lsl lives in here as well. This object is meant to be temporary attached, as such it also requires to be Copy/Modify.
 // The rezzable object and attachable object need to be in the inventory of the tester object.
 
+// -- Commands
+
+// The tester utilizes a set of chat commands that allow you to drive the tester, commands are received on COMMAND_CHANNEL (default /9):
+// /9 load <testsuite> - Loads the test suite with the given name, names are equal to the notecard that defines them
+// /9 suites - Displays all the currently loaded test suites that are available
+// /9 reload - Reloads all the notecards, wipes the LSD of existing data regarding notecards
+// /9 loadtest <testname> - Removes all tests from the currently loaded test suite except for the given name, allowing you to run just this one test
+// /9 report - Reports the test results after a test suite has finished
+// /9 mem - Reports on the current memory usage of the script
+// /9 reset - Script resets ApiTest.lsl
+// /9 stop - Only available during a test run, gracefully stops the current test suite as soon as possible
+
 // -- Defining tests
 
 // Test are loaded via notecard and are formatted in JSON. You can write them in your IDE of choice that allows for JSON syntax validation and then simply copy over the text into the notecard.
@@ -41,13 +53,13 @@
 
 // Note: This schema is ignored by the tester when parsing in-game, you can leave it in your notecard.
 
-// -- Common actions
+// - Common actions
 
 // Define common functions that are required in many tests, this helps reducing the repetitiveness and ensure that you are generally doing the same thing.
 
 // For example: Your API requires a script to announce itself first before it will accept a command from the script, rather than writing the full SEND to authenticate as part of the test data simply define it once there and use it in place of an action.
 
-// - Available actions:
+// -- Available actions:
 
 // - SEND (0)
 // Send a message on a channel to kick off the test.
@@ -189,6 +201,7 @@
 #define TESTSTATE_FAILURE 2
 #define TESTSTATE_INITIALIZING 3
 #define TESTSTATE_RUNNING 4
+#define TESTSTATE_CANCELLED 5
 
 #define TASKSTATE_IDLE 0
 #define TASKSTATE_SUCCESS 1
@@ -839,6 +852,8 @@ state run_test
         string taskResult;
         if(_activeTestState == TESTSTATE_SUCCESS)        
             testResult = llJsonSetValue(testResult, ["r"], "Success");
+        else if(_activeTestState == TESTSTATE_CANCELLED)
+            testResult = llJsonSetValue(testResult, ["r"], "Cancelled");
         else
             testResult = llJsonSetValue(testResult, ["r"], "Failure");
 
@@ -926,6 +941,8 @@ state run_test
             {
                 _activeTest = llGetListLength(_tests);
                 _currentTaskState = TASKSTATE_FAILURE;
+                _activeTestState = TESTSTATE_CANCELLED;
+                llSetTimerEvent(0);
             }
         }
 

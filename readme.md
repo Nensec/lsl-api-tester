@@ -30,6 +30,21 @@ The rezzable object and attachable object need to be in the inventory of the tes
 
 To configure the tester simply modify the output of the macros according to the comments, some things do not need to be changed whilst other things will according to your API needs.
 
+## Commands
+
+The tester utilizes a set of chat commands that allow you to drive the tester, commands are received on COMMAND_CHANNEL (default /9):
+
+| Command | Description |
+| :--- | :--- |
+| `/9 load <testsuite>` | Loads the test suite with the given name, names are equal to the notecard that defines them |
+| `/9 suites` | Displays all the currently loaded test suites that are available |
+| `/9 reload` | Reloads all the notecards, wipes the LSD of existing data regarding notecards |
+| `/9 loadtest <testname>` | Removes all tests from the currently loaded test suite except for the given name, allowing you to run just this one test |
+| `/9 report` | Reports the test results after a test suite has finished |
+| `/9 mem` | Reports on the current memory usage of the script |
+| `/9 reset` | Script resets `ApiTest.lsl` |
+| `/9 stop` | Only available during a test run, gracefully stops the current test suite as soon as possible |
+
 ## Defining tests
 
 Test are loaded via notecard and are formatted in JSON. You can write them in your IDE of choice that allows for JSON syntax validation and then simply copy over the text into the notecard. There is a schema available in the repository, you can point your test suite towards it to validate it to what the tester expects. Simply add:
@@ -72,6 +87,7 @@ Assert a certain value is returned since beginning of test, SEND or RELAY. If a 
     - **string** value
     - **integer** time *(in milliseconds)*
     - **integer** type
+    - **integer** inverse *(inverts the logic if true (not 0), fails test if message is found)*
 - Types:
     - 0: *(Beginning of test)*
     - 1: *(Since last SEND)*
@@ -106,9 +122,10 @@ The ASSERT will be send to the processing helper script after waitTime has passe
 
 The tester expects a message back on TEST_CHANNEL with the provided token as well as the answer of `fail` or `ok` prefixed with the `assert` command.
 The tester will wait for a maximum of 500ms for a reply back.
+
 Example: `assert 7321d897-ad5f-f98c-11ea-f5a56e2399ff ok`
 - Parameters:
-    - **integer** waitTime *(in milliseconds, max 5000)*
+    - **integer** waitTime *(in milliseconds)*
     - **integer** channel
     - **integer** type
 - Types:
@@ -118,10 +135,11 @@ Example: `assert 7321d897-ad5f-f98c-11ea-f5a56e2399ff ok`
 
 # Placeholders
 All parameters for actions have the ability to be replaced dynamically by a different value, something that is generally not known as a constant. These are called `placeholders` and you can refer to them in your actions using the `$` symbol as a prefix. The tester, by default, has two placeholders already defined that you can use:
-- AV
-    - The avatar's UUID
-- TESTCHANNEL
-    - The integer that was defined as part of the TEST_CHANNEL macro in the configuration section
+
+| Placeholder | Description |
+| :--- | :--- |
+| `AV` | The avatar's UUID. |
+| `TESTCHANNEL` | The integer that was defined as part of the TEST_CHANNEL macro in the configuration section |
 
 ## To add your own
 Create a new script file that has the same name as your notecard but append the suffix `_PH` to it. Add a new llLinksetDataWrite for every placeholder you want to add, you can always call a function as well if something is especially complex to calculate.
