@@ -72,6 +72,7 @@
 //     - string value
 //     - integer time (in milliseconds)
 //     - integer type
+//     - integer inverse (inverts the logic if true (not 0), fails test if message is found)
 // - Types:
 //     - 0 (Beginning of test)
 //     - 1 (Since last SEND)
@@ -109,7 +110,7 @@
 // Example: assert 7321d897-ad5f-f98c-11ea-f5a56e2399ff ok
 //
 // - Parameters:
-//     - integer waitTime (in milliseconds, max 5000)
+//     - integer waitTime (in milliseconds)
 //     - integer channel
 //     - integer type
 // - Types:
@@ -148,7 +149,7 @@
 // ####################################################################################
 
 // Turn off which logging you do not want by commenting out the log level. Turning all off will result in only the test result to be output.
-// Turning off logging will help a lot in script memory, it is recommended to only turn on logging when you are experiencing problems and when you do turn off irrelevant tests by commenting them out.
+// Turning off logging will help a lot in script memory, it is recommended to only turn on logging when you are experiencing problems. Additionally use the /9 loadtest <testname> command to load only the problematic test.
 // Logging adds a lot of memory!
 
 //#define INFO
@@ -235,6 +236,7 @@
 #define COMMAND_STOP stop
 #define COMMAND_REPORT report
 #define COMMAND_RESET reset
+#define COMMAND_LOADTEST loadtest
 
 #define INVALID_PLACEHOLDER JSON_INVALID
 
@@ -250,11 +252,6 @@
 
 string _currentSuite;
 list _tests = []; // Currently loaded test suite, or notecard queries (to save memory)
-
-#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
-integer _assertSendType;
-#endif
-key _assertToken;
 
 integer _activeTest = -1; // Index of current test
 integer _activeTestState = TESTSTATE_IDLE; // Current state of the test
@@ -272,6 +269,7 @@ string  _p1; // Parameter 1 of current action
 string  _p2; // Parameter 2 of current action
 string  _p3; // Parameter 3 of current action
 string  _p4; // Parameter 4 of current action
+string  _p5; // Parameter 5 of current action
 
 float _rezTime; // When was the last REZ
 float _sendTime; // When was the last SEND
@@ -279,7 +277,35 @@ float _relayTime; // when was the last RELAY
 float _askTime; // when was the last ASK
 float _assertTime; // When was the last ASSERT
 
-// -- Helper functions
+#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
+integer _assertSendType; // This is only present when ASSERT_SEND_METHOD is _PH and keeps track of what assert type the PH script wants (chat or link)
+#endif
+key _assertToken; // This is the token given to the PH script to do its ASSERT logic, the token is compared upon receiving an answer such that the reply is linked to the correct ASSERT (in case of a timeout)
+
+float _timeToCheck; // Bytecode saver since this is used twice now
+
+integer _expectLastMessageIndex; // This helps keep script time lower by keeping track what EXPECT already checked in between timer loops so we aren't going over the entire _receivedMessage list every 0.1 sec
+
+// Logging
+
+log(string msg) { if(_activeTestState != TESTSTATE_IDLE) llOwnerSay("[V's Tester] [" + (string)_tests[_activeTest] + "] " + msg); else llOwnerSay("[V's Tester] " + msg); }
+#ifdef INFO
+    logInfo(string msg) { log("[INFO] " + msg); }
+#else
+    #define logInfo(msg)
+#endif
+#ifdef VERBOSE
+    logVerbose(string msg) { log("[VERBOSE] " + msg); }
+#else
+    #define logVerbose(msg)
+#endif
+#ifdef LISTENER
+    logListener(string msg, integer channel, float time) { log("[LISTENER] [" + (string)channel + "] [" + (string)time + "] " + msg); }
+#else
+    #define logListener(msg, channel, time)
+#endif
+
+// Misc functions
 
 string getParameter(string param)
 {
@@ -318,25 +344,6 @@ string getParameter(string param)
 
     return result + param;
 }
-
-log(string msg) { if(_activeTestState != TESTSTATE_IDLE) llOwnerSay("[V's Tester] [" + (string)_tests[_activeTest] + "] " + msg); else llOwnerSay("[V's Tester] " + msg); }
-#ifdef INFO
-    logInfo(string msg) { log("[INFO] " + msg); }
-#else
-    #define logInfo(msg)
-#endif
-#ifdef VERBOSE
-    logVerbose(string msg) { log("[VERBOSE] " + msg); }
-#else
-    #define logVerbose(msg)
-#endif
-#ifdef LISTENER
-    logListener(string msg, integer channel, float time) { log("[LISTENER] [" + (string)channel + "] [" + (string)time + "] " + msg); }
-#else
-    #define logListener(msg, channel, time)
-#endif
-
-// Misc functions
 
 #if defined(INFO) || defined(VERBOSE)
 reportTaskState()
@@ -423,7 +430,7 @@ saveRezzedDummy(key id)
     logVerbose("Saving placeholder \"" + _p1 + "\" with value: \"" + (string)id + "\".");
     llLinksetDataWrite(_p1, id); // Save the rezzed object in LSD so it can be used as a placeholder
     llRegionSayTo(id, TEST_CHANNEL, RELAY_COMMAND_INIT + " " + _p1);
-    _rezzedDummies += [_p1 + ":" + (string)id];
+    _rezzedDummies += [_p1 + ":" + (string)id]; // Keep track of rezzed dummies so we can clean up memory and LSD at the end of the test
     _currentTaskState = TASKSTATE_SUCCESS;
 }
 
@@ -432,7 +439,7 @@ killOtherScripts()
     integer count = llGetInventoryNumber(INVENTORY_SCRIPT);
     string name;
     string thisScriptName = llGetScriptName();
-    while(count--) // Kill other scripts in the tester
+    while(count--) // Kill other scripts in the tester object, this is to ensure there is no cross contamination as well as allow for PH scripts to do their init logic in default state_entry
     {
         name = llGetInventoryName(INVENTORY_SCRIPT, count);
         if(name != thisScriptName)
@@ -444,11 +451,11 @@ commandHandler(string message)
 {
     list parts = llParseString2List(message, [" "], []);
     string cmd = (string)parts[0];
-    if(cmd == DEFER_STR(COMMAND_RELOAD))
+    if(cmd == DEFER_STR(COMMAND_RELOAD)) // Reloads all notecards, wiping currently loaded from LSD
         loadNotecards();
-    else if(cmd == DEFER_STR(COMMAND_LOAD) && (string)parts[1] != "")
+    else if(cmd == DEFER_STR(COMMAND_LOAD) && (string)parts[1] != "") // Loads a specific test suite, it's name must match that of the notecard originally read
     {
-        string name = (string)parts[1];
+        string name = llDumpList2String(llList2List(parts, 1, -1), " ");
         string json = llLinksetDataRead("NC_" + name);
         if(llJsonValueType(json, []) != JSON_OBJECT)
             log("There is no suite called \"" + name + "\"" + DEFER_STR(View available suites using DEFER_STR(/COMMAND_CHANNEL COMMAND_SUITES)));
@@ -486,7 +493,27 @@ commandHandler(string message)
             log(DEFER_STR(Loading finished. Use the command DEFER_STR(/COMMAND_CHANNEL COMMAND_START) to start the test suite));
         }
     }
-    else if(cmd == DEFER_STR(COMMAND_START))
+    else if(cmd == DEFER_STR(COMMAND_LOADTEST) && (string)parts[1] != "") // Loads a specific test from within the currently loaded suite
+    {
+        if(_currentSuite)
+        {
+            string name = llDumpList2String(llList2List(parts, 1, -1), " ");
+            integer loadedTest = llListFindList(_tests, [name]);
+            if(loadedTest)
+            {
+                _tests = [name];
+                log("Setting only test to be run to be \"" + name + "\". To restore run " + DEFER_STR(/COMMAND_CHANNEL COMMAND_LOAD) + " " + _currentSuite);
+            }
+            else
+            {
+                log("Test \"" + name + "\" was not found in loaded tests for suite \"" + _currentSuite + "\".");     
+                logVerbose("Available tests: " + llDumpList2String(_tests, ", "));
+            }
+        }
+        else
+            log(DEFER_STR(There is no suite selected. Run the following command to load a test suite: DEFER_STR(/COMMAND_CHANNEL COMMAND_LOAD <name>)));
+    }
+    else if(cmd == DEFER_STR(COMMAND_START)) // Starts the currently loaded test suite
     {
         if(_currentSuite)
         {
@@ -497,7 +524,7 @@ commandHandler(string message)
         else
             log(DEFER_STR(There is no suite selected. Run the following command to load a test suite: DEFER_STR(/COMMAND_CHANNEL COMMAND_LOAD <name>)));
     }
-    else if(cmd == DEFER_STR(COMMAND_SUITES))
+    else if(cmd == DEFER_STR(COMMAND_SUITES)) // Dumps a list of all currently loaded test suites from notecards
     {
         list suites = llLinksetDataFindKeys("^NC_.*$", 0, 0);
         if(suites)
@@ -515,7 +542,7 @@ commandHandler(string message)
         else
             log(DEFER_STR(No suites found in LSD. Insert notecards with test data and use: DEFER_STR(/COMMAND_CHANNEL COMMAND_RELOAD)));
     }
-    else if(cmd == DEFER_STR(COMMAND_MEM))
+    else if(cmd == DEFER_STR(COMMAND_MEM)) // Dumps info about current memory usage
     {
         integer memused = llGetUsedMemory();
         integer memmax = llGetMemoryLimit();
@@ -526,7 +553,7 @@ commandHandler(string message)
         log("Memory Used: " + (string)memused + "\nMemory Free: " + (string)memfree + "\nMemory Limit: " + (string)memmax + "\nPercentage of Memory Usage: " + (string)memperc + "%.");
         log("LSD available: " + (string)lsdAvailable + " / 131072 (" + (string)((integer)(100 * (float)lsdAvailable/131072)) + "%).");
     }
-    else if(cmd == DEFER_STR(COMMAND_REPORT))
+    else if(cmd == DEFER_STR(COMMAND_REPORT)) // Reports on test results, if present
     {
         list testData = llLinksetDataFindKeys("^R_.*$", 0, 0);
         integer i;
@@ -566,7 +593,7 @@ commandHandler(string message)
         llResetScript();
 }
 
-// -- States
+// States
 
 default
 {
@@ -945,8 +972,14 @@ state run_test
                 logInfo("Placeholder in p4 is invalid.");
                 placeholderChecks += [(string)params[3]];
             }
+            _p5 = getParameter((string)params[4]);
+            if(_p4 == INVALID_PLACEHOLDER)
+            {
+                logInfo("Placeholder in p5 is invalid.");
+                placeholderChecks += [(string)params[4]];
+            }
 
-            logVerbose("Parameters: p1: \"" + _p1 + "\" p2: \"" + _p2 + "\" p3: \"" + _p3 + "\" p4: \"" + _p4 + "\"");
+            logVerbose("Parameters: p1: \"" + _p1 + "\" p2: \"" + _p2 + "\" p3: \"" + _p3 + "\" p4: \"" + _p4 + "\" p5: \"" + _p5 + "\"");
             if(placeholderChecks)
             {
                 logInfo("There was a problem with a placeholder.");
@@ -1078,47 +1111,64 @@ state run_test
         }
         else if(currentActionType == ACTION_EXPECT)
         {
-            if(_currentTaskState == TASKSTATE_IDLE || _currentTaskState == TASKSTATE_WAITING)
+            if(_currentTaskState == TASKSTATE_IDLE)
             {
-                float timeToCheck = 0;
-
                 if((integer)_p4 == EXPECT_TYPE_SEND)
-                    timeToCheck = _sendTime;
+                    _timeToCheck = _sendTime;
                 else if((integer)_p4 == EXPECT_TYPE_RELAY)
-                    timeToCheck = _relayTime;
+                    _timeToCheck = _relayTime;
 
-                integer i;
+                _expectLastMessageIndex = 0;
+                _currentTaskState = TASKSTATE_WAITING;
+            }
+            if(_currentTaskState == TASKSTATE_WAITING)
+            {
                 integer len = llGetListLength(_receivedMessage);
                 logVerbose("Received messages at this point: " + llDumpList2String(_receivedMessage, ", "));
-                for(i = 0; i < len; i += 3)
+                string compare = _p2;
+                integer wildcardIndex = llSubStringIndex(compare, "*");
+                if(wildcardIndex != -1)
+                    compare = llGetSubString(compare, 0, wildcardIndex - 1);
+                for(; _expectLastMessageIndex < len; _expectLastMessageIndex += 3)
                 {
-                    if((float)_receivedMessage[i + 2] > timeToCheck)
+                    if((float)_receivedMessage[_expectLastMessageIndex + 2] > _timeToCheck)
                     {
-                        if((integer)_receivedMessage[i + 1] == (integer)_p1)
+                        if((integer)_receivedMessage[_expectLastMessageIndex + 1] == (integer)_p1)
                         {
-                            string message = (string)_receivedMessage[i];
-                            string compare = _p2;
-                            if(llSubStringIndex(compare, "*") != -1)
-                            {
-                                message = llGetSubString(message, 0, llSubStringIndex(compare, "*") - 1);
-                                compare = llGetSubString(compare, 0, llStringLength(compare) - 2);
-                            }
+                            string message = (string)_receivedMessage[_expectLastMessageIndex];
+                            if(wildcardIndex != -1)
+                                message = llGetSubString(message, 0, wildcardIndex - 1);
                             logVerbose("Current string comparison: " + message + " to compare it to: " + compare);
                             if(message == compare)
                             {
-                                _currentTaskState = TASKSTATE_SUCCESS;
-                                i = len;
+                                if(_p5)
+                                {
+                                    _currentTaskFailureMessage = "Found \"" + _p2 + "\" among messages received.";
+                                    _currentTaskState = TASKSTATE_FAILURE;
+                                    jump endfor;
+                                }
+                                else
+                                {
+                                    _currentTaskState = TASKSTATE_SUCCESS;
+                                    jump endfor;
+                                }
                             }
                         }
                     }
                 }
+                @endfor;
 
-                if(_currentTaskState != TASKSTATE_SUCCESS)
+                if(_currentTaskState == TASKSTATE_WAITING)
                 {
-                    if(llGetTime() > (timeToCheck + ((float)_p3 / 1000)))
+                    if(llGetTime() > (_timeToCheck + ((float)_p3 / 1000)))
                     {
-                        _currentTaskFailureMessage = "Unable to find \"" + _p2 + "\" among messages received.";
-                        _currentTaskState = TASKSTATE_FAILURE;
+                        if(_p5)                        
+                            _currentTaskState = TASKSTATE_SUCCESS;
+                        else
+                        {
+                            _currentTaskFailureMessage = "Unable to find \"" + _p2 + "\" among messages received.";
+                            _currentTaskState = TASKSTATE_FAILURE;
+                        }
                     }
                 }
             }
@@ -1127,11 +1177,13 @@ state run_test
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                if((integer)_p1 > 5000) // enforce 5sec max
-                    _p1 = (string)5000;
-
                 if(_assertTime == 0 && (integer)_p1 != 0)
                     _assertTime = llGetTime();
+
+                if((integer)_p3 == ASSERT_TYPE_SEND)
+                    _timeToCheck = _sendTime;
+                else if((integer)_p3 == ASSERT_TYPE_RELAY)
+                    _timeToCheck = _relayTime;
 
                 _currentTaskState = TASKSTATE_WAITING;
             }
@@ -1153,13 +1205,8 @@ state run_test
                         string json = "{}";
                         _assertToken = llGenerateKey();
                         json = llJsonSetValue(json, ["token"], _assertToken);
-
-                        float timeToCheck = 0;
-
-                        if((integer)_p3 == ASSERT_TYPE_SEND)
-                            timeToCheck = _sendTime;
-                        else if((integer)_p3 == ASSERT_TYPE_RELAY)
-                            timeToCheck = _relayTime;
+                        json = llJsonSetValue(json, ["test"], (string)_tests[_activeTest]);
+                        json = llJsonSetValue(json, ["task"], llJsonGetValue(_currentTaskData, ["n"]));
 
                         integer i;
                         integer len = llGetListLength(_receivedMessage);
@@ -1167,7 +1214,7 @@ state run_test
                         for(i = 0; i < len; i += 3)
                         {
                             msgJson = "{}";
-                            if((float)_receivedMessage[i + 2] > timeToCheck)
+                            if((float)_receivedMessage[i + 2] > _timeToCheck)
                             {
                                 if((integer)_receivedMessage[i + 1] == (integer)_p2)
                                 {

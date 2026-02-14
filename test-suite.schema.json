@@ -15,6 +15,7 @@
       "items": {
         "type": "object",
         "description": "The object that descibes the test",
+        "uniqueItems": true,
         "patternProperties": {
           "^.*$": {
             "type": "object",
@@ -62,6 +63,7 @@
       "type": "array",
       "items": {
         "type": "object",
+        "uniqueItems": true,
         "patternProperties": {
           "^.*$": {
             "type": "object",

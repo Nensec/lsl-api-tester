@@ -4,6 +4,8 @@
     "type": "object",
     "properties": {
         "token": { "type": "string", "description": "The token required to be send back that binds the reply to the ASSERT task" },
+        "test": { "type":"string", "description": "The name of the current test"},
+        "task": { "type":"string", "description": "The name of the current task"},
         "msgs": {
             "type":"array",
             "description": "The array of messages to parse through",
