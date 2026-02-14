@@ -281,11 +281,11 @@ list _receivedMessage = []; // Strided list of 3: [message, channel, timestamp]
 list _rezzedDummies = []; // All of the dummies rezzed during the current test
 
 // Parameters are global, this is to lower memory fragmentation
-string  _p1; // Parameter 1 of current action
-string  _p2; // Parameter 2 of current action
-string  _p3; // Parameter 3 of current action
-string  _p4; // Parameter 4 of current action
-string  _p5; // Parameter 5 of current action
+string  _currentActionParam1; // Parameter 1 of current action
+string  _currentActionParam2; // Parameter 2 of current action
+string  _currentActionParam3; // Parameter 3 of current action
+string  _currentActionParam4; // Parameter 4 of current action
+string  _currentActionParam5; // Parameter 5 of current action
 
 float _rezTime; // When was the last REZ
 float _sendTime; // When was the last SEND
@@ -443,10 +443,10 @@ loadNotecards()
 
 saveRezzedDummy(key id)
 {
-    logVerbose("Saving placeholder \"" + _p1 + "\" with value: \"" + (string)id + "\".");
-    llLinksetDataWrite(_p1, id); // Save the rezzed object in LSD so it can be used as a placeholder
-    llRegionSayTo(id, TEST_CHANNEL, RELAY_COMMAND_INIT + " " + _p1);
-    _rezzedDummies += [_p1 + ":" + (string)id]; // Keep track of rezzed dummies so we can clean up memory and LSD at the end of the test
+    logVerbose("Saving placeholder \"" + _currentActionParam1 + "\" with value: \"" + (string)id + "\".");
+    llLinksetDataWrite(_currentActionParam1, id); // Save the rezzed object in LSD so it can be used as a placeholder
+    llRegionSayTo(id, TEST_CHANNEL, RELAY_COMMAND_INIT + " " + _currentActionParam1);
+    _rezzedDummies += [_currentActionParam1 + ":" + (string)id]; // Keep track of rezzed dummies so we can clean up memory and LSD at the end of the test
     _currentTaskState = TASKSTATE_SUCCESS;
 }
 
@@ -968,38 +968,38 @@ state run_test
             list params = llJson2List(llJsonGetValue(_currentTaskData, ["p"]));
 
             // Get parameters and replace placeholders, check if placeholder subsitution was succesful and if not fail the test
-            _p1 = getParameter((string)params[0]);
-            if(_p1 == INVALID_PLACEHOLDER)
+            _currentActionParam1 = getParameter((string)params[0]);
+            if(_currentActionParam1 == INVALID_PLACEHOLDER)
             {
                 logInfo("Placeholder in p1 is invalid.");
                 placeholderChecks += [(string)params[0]];            
             }
-            _p2 = getParameter((string)params[1]);
-            if(_p2 == INVALID_PLACEHOLDER)
+            _currentActionParam2 = getParameter((string)params[1]);
+            if(_currentActionParam2 == INVALID_PLACEHOLDER)
             {
                 logInfo("Placeholder in p2 is invalid.");
                 placeholderChecks += [(string)params[1]];
             }
-            _p3 = getParameter((string)params[2]);
-            if(_p3 == INVALID_PLACEHOLDER)
+            _currentActionParam3 = getParameter((string)params[2]);
+            if(_currentActionParam3 == INVALID_PLACEHOLDER)
             {
                 logInfo("Placeholder in p3 is invalid.");
                 placeholderChecks += [(string)params[2]];
             }
-            _p4 = getParameter((string)params[3]);
-            if(_p4 == INVALID_PLACEHOLDER)
+            _currentActionParam4 = getParameter((string)params[3]);
+            if(_currentActionParam4 == INVALID_PLACEHOLDER)
             {
                 logInfo("Placeholder in p4 is invalid.");
                 placeholderChecks += [(string)params[3]];
             }
-            _p5 = getParameter((string)params[4]);
-            if(_p4 == INVALID_PLACEHOLDER)
+            _currentActionParam5 = getParameter((string)params[4]);
+            if(_currentActionParam4 == INVALID_PLACEHOLDER)
             {
                 logInfo("Placeholder in p5 is invalid.");
                 placeholderChecks += [(string)params[4]];
             }
 
-            logVerbose("Parameters: p1: \"" + _p1 + "\" p2: \"" + _p2 + "\" p3: \"" + _p3 + "\" p4: \"" + _p4 + "\" p5: \"" + _p5 + "\"");
+            logVerbose("Parameters: p1: \"" + _currentActionParam1 + "\" p2: \"" + _currentActionParam2 + "\" p3: \"" + _currentActionParam3 + "\" p4: \"" + _currentActionParam4 + "\" p5: \"" + _currentActionParam5 + "\"");
             if(placeholderChecks)
             {
                 logInfo("There was a problem with a placeholder.");
@@ -1016,10 +1016,10 @@ state run_test
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                if(llLinksetDataRead(_p1))
+                if(llLinksetDataRead(_currentActionParam1))
                 {
-                    logInfo("Unable to rez with name \"" + _p1 + "\" as a placeholder with that name already exists.");
-                    _currentTaskFailureMessage = "Placeholder with name \"" + _p1 + "\" already exists.";
+                    logInfo("Unable to rez with name \"" + _currentActionParam1 + "\" as a placeholder with that name already exists.");
+                    _currentTaskFailureMessage = "Placeholder with name \"" + _currentActionParam1 + "\" already exists.";
                     _currentTaskState = TASKSTATE_FAILURE;
                 }
                 else
@@ -1027,7 +1027,7 @@ state run_test
                     if(currentActionType == ACTION_REZ)
                     {
                         vector myPos = llGetPos();
-                        vector forwardOffset = <(float)_p2, 0.0, 0.0>; // Place the rezzed object x meters away based on the parameters of REZ
+                        vector forwardOffset = <(float)_currentActionParam2, 0.0, 0.0>; // Place the rezzed object x meters away based on the parameters of REZ
                         vector targetPos = myPos + (forwardOffset * llGetRot());
 
                         list ray = llCastRay(targetPos + <0,0,1>, targetPos - <0,0,4>, [RC_REJECT_TYPES, RC_REJECT_AGENTS]);
@@ -1067,9 +1067,9 @@ state run_test
             if(_currentTaskState == TASKSTATE_IDLE)
             {
 #if ASK_TYPE == ASK_TYPE_CHAT
-                llOwnerSay(_p1 + " [secondlife:///app/chat/" + (string)TEST_CHANNEL + "/" + ASK_YES + " " + ASK_YES + "] or [secondlife:///app/chat/" + (string)TEST_CHANNEL + "/" + ASK_NO + " " + ASK_NO + "]");
+                llOwnerSay(_currentActionParam1 + " [secondlife:///app/chat/" + (string)TEST_CHANNEL + "/" + ASK_YES + " " + ASK_YES + "] or [secondlife:///app/chat/" + (string)TEST_CHANNEL + "/" + ASK_NO + " " + ASK_NO + "]");
 #elif ASK_TYPE == ASK_TYPE_DIALOG
-                llDialog(llGetOwner(), _p1, [ASK_YES, ASK_NO], TEST_CHANNEL);
+                llDialog(llGetOwner(), _currentActionParam1, [ASK_YES, ASK_NO], TEST_CHANNEL);
 #else
 #error "Invalid configuration for ASK_TYPE"
 #endif
@@ -1090,16 +1090,16 @@ state run_test
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                if((key)_p1 == NULL_KEY)
+                if((key)_currentActionParam1 == NULL_KEY)
                 {
                     _currentTaskState = TASKSTATE_FAILURE;
                     _currentTaskFailureMessage = "Target key was NULL_KEY.";
                 }
                 else
                 {
-                    logVerbose("Sending: \"" + _p3 + "\" on channel: \"" + _p2 + "\"");
+                    logVerbose("Sending: \"" + _currentActionParam3 + "\" on channel: \"" + _currentActionParam2 + "\"");
 
-                    llRegionSayTo((key)_p1, (integer)_p2, _p3);
+                    llRegionSayTo((key)_currentActionParam1, (integer)_currentActionParam2, _currentActionParam3);
                     _sendTime = llGetTime();
                     _currentTaskState = TASKSTATE_SUCCESS;
                 }
@@ -1109,21 +1109,21 @@ state run_test
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                if((key)_p1 == NULL_KEY)
+                if((key)_currentActionParam1 == NULL_KEY)
                 {
                     _currentTaskState = TASKSTATE_FAILURE;
                     _currentTaskFailureMessage = "Target key was NULL_KEY.";
                 }
-                else if((integer)_p4 != RELAY_TYPE_REGIONSAYTO && (integer)_p4 != RELAY_TYPE_SAY && (integer)_p4 != RELAY_TYPE_WHISPER && (integer)_p4 != RELAY_TYPE_SHOUT)
+                else if((integer)_currentActionParam4 != RELAY_TYPE_REGIONSAYTO && (integer)_currentActionParam4 != RELAY_TYPE_SAY && (integer)_currentActionParam4 != RELAY_TYPE_WHISPER && (integer)_currentActionParam4 != RELAY_TYPE_SHOUT)
                 {
                     _currentTaskState = TASKSTATE_FAILURE;
-                    _currentTaskFailureMessage = "Invalid value type \"" + _p4 + "\" specified.";
+                    _currentTaskFailureMessage = "Invalid value type \"" + _currentActionParam4 + "\" specified.";
                     return;
                 }
                 else
                 {
-                    logVerbose("Sending message of type: " + _p4 + " to be send on channel: " + _p2 + " message: " + _p3);
-                    llRegionSayTo((key)_p1, TEST_CHANNEL, RELAY_COMMAND_RELAY + " " + _p4 + " " + _p2 + " " + _p3);
+                    logVerbose("Sending message of type: " + _currentActionParam4 + " to be send on channel: " + _currentActionParam2 + " message: " + _currentActionParam3);
+                    llRegionSayTo((key)_currentActionParam1, TEST_CHANNEL, RELAY_COMMAND_RELAY + " " + _currentActionParam4 + " " + _currentActionParam2 + " " + _currentActionParam3);
                     _relayTime = llGetTime();
                     _currentTaskState = TASKSTATE_SUCCESS;
                 }
@@ -1133,9 +1133,9 @@ state run_test
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                if((integer)_p4 == EXPECT_TYPE_SEND)
+                if((integer)_currentActionParam4 == EXPECT_TYPE_SEND)
                     _timeToCheck = _sendTime;
-                else if((integer)_p4 == EXPECT_TYPE_RELAY)
+                else if((integer)_currentActionParam4 == EXPECT_TYPE_RELAY)
                     _timeToCheck = _relayTime;
 
                 _expectLastMessageIndex = 0;
@@ -1145,7 +1145,7 @@ state run_test
             {
                 integer len = llGetListLength(_receivedMessage);
                 logVerbose("Received messages at this point: " + llDumpList2String(_receivedMessage, ", "));
-                string compare = _p2;
+                string compare = _currentActionParam2;
                 integer wildcardIndex = llSubStringIndex(compare, "*");
                 if(wildcardIndex != -1)
                     compare = llGetSubString(compare, 0, wildcardIndex - 1);
@@ -1153,7 +1153,7 @@ state run_test
                 {
                     if((float)_receivedMessage[_expectLastMessageIndex + 2] > _timeToCheck)
                     {
-                        if((integer)_receivedMessage[_expectLastMessageIndex + 1] == (integer)_p1)
+                        if((integer)_receivedMessage[_expectLastMessageIndex + 1] == (integer)_currentActionParam1)
                         {
                             string message = (string)_receivedMessage[_expectLastMessageIndex];
                             if(wildcardIndex != -1)
@@ -1161,9 +1161,9 @@ state run_test
                             logVerbose("Current string comparison: " + message + " to compare it to: " + compare);
                             if(message == compare)
                             {
-                                if(_p5)
+                                if(_currentActionParam5)
                                 {
-                                    _currentTaskFailureMessage = "Found \"" + _p2 + "\" among messages received.";
+                                    _currentTaskFailureMessage = "Found \"" + _currentActionParam2 + "\" among messages received.";
                                     _currentTaskState = TASKSTATE_FAILURE;
                                     jump endfor;
                                 }
@@ -1180,13 +1180,13 @@ state run_test
 
                 if(_currentTaskState == TASKSTATE_WAITING)
                 {
-                    if(llGetTime() > (_timeToCheck + ((float)_p3 / 1000)))
+                    if(llGetTime() > (_timeToCheck + ((float)_currentActionParam3 / 1000)))
                     {
-                        if(_p5)                        
+                        if(_currentActionParam5)                        
                             _currentTaskState = TASKSTATE_SUCCESS;
                         else
                         {
-                            _currentTaskFailureMessage = "Unable to find \"" + _p2 + "\" among messages received.";
+                            _currentTaskFailureMessage = "Unable to find \"" + _currentActionParam2 + "\" among messages received.";
                             _currentTaskState = TASKSTATE_FAILURE;
                         }
                     }
@@ -1197,12 +1197,12 @@ state run_test
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                if(_assertTime == 0 && (integer)_p1 != 0)
+                if(_assertTime == 0 && (integer)_currentActionParam1 != 0)
                     _assertTime = llGetTime();
 
-                if((integer)_p3 == ASSERT_TYPE_SEND)
+                if((integer)_currentActionParam3 == ASSERT_TYPE_SEND)
                     _timeToCheck = _sendTime;
-                else if((integer)_p3 == ASSERT_TYPE_RELAY)
+                else if((integer)_currentActionParam3 == ASSERT_TYPE_RELAY)
                     _timeToCheck = _relayTime;
 
                 _currentTaskState = TASKSTATE_WAITING;
@@ -1220,7 +1220,7 @@ state run_test
                 }
                 else
                 {
-                    if(llGetTime() > (_assertTime + ((float)_p1 / 1000)))
+                    if(llGetTime() > (_assertTime + ((float)_currentActionParam1 / 1000)))
                     {
                         string json = "{}";
                         _assertToken = llGenerateKey();
@@ -1236,7 +1236,7 @@ state run_test
                             msgJson = "{}";
                             if((float)_receivedMessage[i + 2] > _timeToCheck)
                             {
-                                if((integer)_receivedMessage[i + 1] == (integer)_p2)
+                                if((integer)_receivedMessage[i + 1] == (integer)_currentActionParam2)
                                 {
                                     msgJson = llJsonSetValue(msgJson, ["m"], (string)_receivedMessage[i]);                                
                                     msgJson = llJsonSetValue(msgJson, ["t"], (string)_receivedMessage[i + 2]);
