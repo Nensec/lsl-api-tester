@@ -22,7 +22,7 @@ All scripts, and thus its latest versions, can be found at on my github: https:/
 As this script is meant for developers, I welcome forking and subsequent pull requests with modifications!
 
 The tester has 3 objects that it uses.
- - The tester object. ApiTester.lsl and ApiTester_Runner.lsl live in here. (The latter is optional and dependant on configuration here!)
+ - The tester object. ApiTester.lsl lives in here. (The latter is optional and dependant on configuration here!)
  - A rezzable object. ApiTester_Relay.lsl lives in here. This object is meant to be rezzed, as such it requires to be Copy/Modify.
  - An attachable object. ApiTester_Relay.lsl lives in here as well. This object is meant to be temporary attached, as such it also requires to be Copy/Modify.
 
