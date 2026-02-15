@@ -261,8 +261,8 @@
         llLinksetDataWrite("TESTCHANNEL", (string)TEST_CHANNEL);
 
 #define COMMON_ACTIONS \
-        llLinksetDataWrite("C_REZ_DUMMY", DEFER_STR({"n":"Rez dummy","a":ACTION_REZ,"p":["DUMMY",2.5]})); \
-        llLinksetDataWrite("C_ATTACH_DUMMY", DEFER_STR({"n":"Attach dummy","a":ACTION_ATTACH,"p":["ATTACH"]}));
+        llLinksetDataWrite("C_REZ_DUMMY", DEFER_STR({"name":"Rez dummy","actionType":ACTION_REZ,"parameters":["DUMMY",2.5]})); \
+        llLinksetDataWrite("C_ATTACH_DUMMY", DEFER_STR({"name":"Attach dummy","actionType":ACTION_ATTACH,"parameters":["ATTACH"]}));
 
 // -- Global variables
 
@@ -397,13 +397,13 @@ loadNextTask()
         _assertToken = NULL_KEY;
         _assertTime = 0;
 
-        logInfo("Next task is: " + llJsonGetValue(_currentTaskData, ["n"]));
+        logInfo("Next task is: " + llJsonGetValue(_currentTaskData, ["name"]));
     }
 }
 
 list getTaskActions()
 {
-    list actions = llJson2List(llJsonGetValue(llLinksetDataRead("T_" + (string)_tests[_activeTest]), ["a"]));
+    list actions = llJson2List(llJsonGetValue(llLinksetDataRead("T_" + (string)_tests[_activeTest]), ["actions"]));
     integer i;
     integer len = llGetListLength(actions);
     for(i = 0; i < len; i++)
@@ -429,7 +429,7 @@ loadNotecards()
         log("No notecards found, add a notecard with test data to begin.");
     else
         log("Found 1 notecard, parsing it now..");
- 
+
     string name;
     string queryId;
     while(count--)
@@ -582,21 +582,21 @@ commandHandler(string message)
         for(i = 0; i < len; i++)
         {
             string testResult = llLinksetDataRead((string)testData[i]);
-            log("Test result for \"" + llJsonGetValue(testResult, ["n"]) + "\": " + llJsonGetValue(testResult, ["r"]));
+            log("Test result for \"" + llJsonGetValue(testResult, ["name"]) + "\": " + llJsonGetValue(testResult, ["result"]));
 #ifndef VERBOSE
-            if(llJsonGetValue(testResult, ["r"]) == "Failure") {
+            if(llJsonGetValue(testResult, ["result"]) == "Failure") {
 #endif
             log("Task results:");
-            list taskResults = llJson2List(llJsonGetValue(testResult, ["t"]));
+            list taskResults = llJson2List(llJsonGetValue(testResult, ["actions"]));
             integer j;
             integer taskLen = llGetListLength(taskResults);
             for(j = 0; j < taskLen; j++)
             {
                 string taskResult = (string)taskResults[j];
-                string name = llJsonGetValue(taskResult, ["n"]);
-                string result = llJsonGetValue(taskResult, ["r"]);
+                string name = llJsonGetValue(taskResult, ["name"]);
+                string result = llJsonGetValue(taskResult, ["result"]);
                 if(result == "Failure")
-                    log("  \"" + name + "\": " + result + ". Reason: " + llJsonGetValue(taskResult, ["m"]) + ".");
+                    log("  \"" + name + "\": " + result + ". Reason: " + llJsonGetValue(taskResult, ["message"]) + ".");
                 else
                     log("  \"" + name + "\": " + result + ".");
             }
@@ -751,7 +751,7 @@ state load_next_test
             string testName = (string)_tests[_activeTest];
             logVerbose("Loading data for test: \"" + testName + "\".");
             string testJson = llLinksetDataRead("T_" + testName);
-            list dependencies = llJson2List(llJsonGetValue(testJson, ["d"]));
+            list dependencies = llJson2List(llJsonGetValue(testJson, ["dependencies"]));
             list actions = getTaskActions();
             logVerbose("Dependencies: " + llDumpList2String(dependencies, ", "));
             if(dependencies)
@@ -761,19 +761,19 @@ state load_next_test
                 for(i = 0; i < len; i++)
                 {
                     string dependencyTestResult = llLinksetDataRead("R_" + (string)dependencies[i]);
-                    if(llJsonGetValue(dependencyTestResult, ["r"]) != "Success")
+                    if(llJsonGetValue(dependencyTestResult, ["result"]) != "Success")
                     {
-                        string testResult = llJsonSetValue("{}", ["n"], (string)_tests[_activeTest]);
-                        testResult = llJsonSetValue(testResult, ["r"], "Skipped - Dependencies not met");
+                        string testResult = llJsonSetValue("{}", ["name"], (string)_tests[_activeTest]);
+                        testResult = llJsonSetValue(testResult, ["result"], "Skipped - Dependencies not met");
                         len = llGetListLength(actions);
                         for(i = 0; i < len; i++)
                         {
                             string taskResult = "{}";
-                            taskResult = llJsonSetValue(taskResult, ["n"], llJsonGetValue((string)actions[i], ["n"]));
-                            taskResult = llJsonSetValue(taskResult, ["a"], llJsonGetValue((string)actions[i], ["a"]));
-                            taskResult = llJsonSetValue(taskResult, ["r"], "Not run");
+                            taskResult = llJsonSetValue(taskResult, ["name"], llJsonGetValue((string)actions[i], ["name"]));
+                            taskResult = llJsonSetValue(taskResult, ["actionType"], llJsonGetValue((string)actions[i], ["actionType"]));
+                            taskResult = llJsonSetValue(taskResult, ["result"], "Not run");
 
-                            testResult = llJsonSetValue(testResult, ["t", JSON_APPEND], taskResult);
+                            testResult = llJsonSetValue(testResult, ["actions", JSON_APPEND], taskResult);
                         }
 
                         llLinksetDataWrite("R_" + (string)_tests[_activeTest], testResult);
@@ -812,9 +812,9 @@ state run_test
         for(i = 0; i < llGetListLength(actions); i++)
         {
             string task = llList2String(actions, i);
-            if ((integer)llJsonGetValue(task, ["a"]) == ACTION_EXPECT)
+            if ((integer)llJsonGetValue(task, ["actionType"]) == ACTION_EXPECT)
             {
-                list taskParams = llJson2List(llJsonGetValue(task, ["p"]));
+                list taskParams = llJson2List(llJsonGetValue(task, ["parameters"]));
                 string channel = getParameter((string)taskParams[0]);
                 llListen((integer)channel, _, NULL_KEY, _);
             }
@@ -848,32 +848,32 @@ state run_test
         list actions = getTaskActions();
 
         string testName = (string)_tests[_activeTest];
-        string testResult = llJsonSetValue("{}", ["n"], testName);
+        string testResult = llJsonSetValue("{}", ["name"], testName);
         string taskResult;
         if(_activeTestState == TESTSTATE_SUCCESS)        
-            testResult = llJsonSetValue(testResult, ["r"], "Success");
+            testResult = llJsonSetValue(testResult, ["result"], "Success");
         else if(_activeTestState == TESTSTATE_CANCELLED)
-            testResult = llJsonSetValue(testResult, ["r"], "Cancelled");
+            testResult = llJsonSetValue(testResult, ["result"], "Cancelled");
         else
-            testResult = llJsonSetValue(testResult, ["r"], "Failure");
+            testResult = llJsonSetValue(testResult, ["result"], "Failure");
 
         len = llGetListLength(actions);
         for(i = 0; i < len; i++)
         {
             taskResult = "{}";
-            taskResult = llJsonSetValue(taskResult, ["n"], llJsonGetValue((string)actions[i], ["n"]));
-            taskResult = llJsonSetValue(taskResult, ["a"], llJsonGetValue((string)actions[i], ["a"]));
+            taskResult = llJsonSetValue(taskResult, ["name"], llJsonGetValue((string)actions[i], ["name"]));
+            taskResult = llJsonSetValue(taskResult, ["actionType"], llJsonGetValue((string)actions[i], ["actionType"]));
             if(i == _currentTask && _activeTestState == TESTSTATE_FAILURE)
             {
-                taskResult = llJsonSetValue(taskResult, ["r"], "Failure");
-                taskResult = llJsonSetValue(taskResult, ["m"], _currentTaskFailureMessage);
+                taskResult = llJsonSetValue(taskResult, ["result"], "Failure");
+                taskResult = llJsonSetValue(taskResult, ["message"], _currentTaskFailureMessage);
             }
             else if(i > _currentTask  && _activeTestState == TESTSTATE_FAILURE)
-                taskResult = llJsonSetValue(taskResult, ["r"], "Not run");
+                taskResult = llJsonSetValue(taskResult, ["result"], "Not run");
             else
-                taskResult = llJsonSetValue(taskResult, ["r"], "Success");
+                taskResult = llJsonSetValue(taskResult, ["result"], "Success");
 
-            testResult = llJsonSetValue(testResult, ["t", JSON_APPEND], taskResult);
+            testResult = llJsonSetValue(testResult, ["actions", JSON_APPEND], taskResult);
         }
 
         llLinksetDataWrite("R_" + testName, testResult);
@@ -898,7 +898,7 @@ state run_test
         logListener(message, channel, llGetTime());
         if(channel == TEST_CHANNEL)
         {
-            integer currentAction = (integer)llJsonGetValue(_currentTaskData, ["a"]);
+            integer currentAction = (integer)llJsonGetValue(_currentTaskData, ["actionType"]);
             if(currentAction == ACTION_ASK)
             {
                 if(message == ASK_YES)
@@ -951,7 +951,7 @@ state run_test
 
     object_rez(key id)
     {
-        if((integer)llJsonGetValue(_currentTaskData, ["a"]) == ACTION_REZ) // ATTACH will send a message when it attaches
+        if((integer)llJsonGetValue(_currentTaskData, ["actionType"]) == ACTION_REZ) // ATTACH will send a message when it attaches
             saveRezzedDummy(id);
         else
             llRegionSayTo(id, TEST_CHANNEL, RELAY_COMMAND_ATTACH + " " + (string)DUMMY_ATTACH_POINT);
@@ -965,7 +965,7 @@ state run_test
         if(_currentTaskState == TASKSTATE_IDLE)
         {
             list placeholderChecks = [];
-            list params = llJson2List(llJsonGetValue(_currentTaskData, ["p"]));
+            list params = llJson2List(llJsonGetValue(_currentTaskData, ["parameters"]));
 
             // Get parameters and replace placeholders, check if placeholder subsitution was succesful and if not fail the test
             _currentActionParam1 = getParameter((string)params[0]);
@@ -1011,7 +1011,7 @@ state run_test
             }
         }
 
-        integer currentActionType = (integer)llJsonGetValue(_currentTaskData, ["a"]);
+        integer currentActionType = (integer)llJsonGetValue(_currentTaskData, ["actionType"]);
         if(currentActionType == ACTION_REZ || currentActionType == ACTION_ATTACH)
         {
             if(_currentTaskState == TASKSTATE_IDLE)
@@ -1226,7 +1226,7 @@ state run_test
                         _assertToken = llGenerateKey();
                         json = llJsonSetValue(json, ["token"], _assertToken);
                         json = llJsonSetValue(json, ["test"], (string)_tests[_activeTest]);
-                        json = llJsonSetValue(json, ["task"], llJsonGetValue(_currentTaskData, ["n"]));
+                        json = llJsonSetValue(json, ["task"], llJsonGetValue(_currentTaskData, ["name"]));
 
                         integer i;
                         integer len = llGetListLength(_receivedMessage);
