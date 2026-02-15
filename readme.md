@@ -42,7 +42,7 @@ The tester utilizes a set of chat commands that allow you to drive the tester, c
 | `/9 loadtest <testname>` | Removes all tests from the currently loaded test suite except for the given name, allowing you to run just this one test |
 | `/9 report` | Reports the test results after a test suite has finished |
 | `/9 mem` | Reports on the current memory usage of the script |
-| `/9 reset` | Script resets `ApiTest.lsl` |
+| `/9 reset` | Script resets `ApiTester.lsl` |
 | `/9 stop` | Only available during a test run, gracefully stops the current test suite as soon as possible |
 
 ## Defining tests

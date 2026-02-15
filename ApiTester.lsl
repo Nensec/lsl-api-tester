@@ -474,10 +474,16 @@ commandHandler(string message)
         string name = llDumpList2String(llList2List(parts, 1, -1), " ");
         string json = llLinksetDataRead("NC_" + name);
         if(llJsonValueType(json, []) != JSON_OBJECT)
-            log("There is no suite called \"" + name + "\"" + DEFER_STR(View available suites using DEFER_STR(/COMMAND_CHANNEL COMMAND_SUITES)));
+            log("There is no suite called \"" + name + "\". " + DEFER_STR(View available suites using DEFER_STR(/COMMAND_CHANNEL COMMAND_SUITES)));
         else
         {
-            llLinksetDataDeleteFound("^(C|T|R)_.*$", _);
+            logVerbose("Removing keys not associated with test suites..");
+            llLinksetDataDeleteFound("^([^N]|N[^C]|NC[^_]).*$", _);
+
+            logVerbose("Loading placeholders into LSD..");
+            DEFAULT_PLACEHOLDERS
+            logVerbose("Loading common actions into LSD..");
+            COMMON_ACTIONS
 
             log("Loading test suite \"" + llJsonGetValue(json, ["name"]) + "\"");
             _tests = [];
@@ -571,9 +577,9 @@ commandHandler(string message)
     }
     else if(cmd == DEFER_STR(COMMAND_REPORT)) // Reports on test results, if present
     {
-        list testData = llLinksetDataFindKeys("^R_.*$", 0, 0);
+        list testResultData = llLinksetDataFindKeys("^R_.*$", 0, 0);
         integer i;
-        integer len = llGetListLength(testData);
+        integer len = llGetListLength(testResultData);
         if(len == 0)
         {
             log("There are no test results available.");
@@ -581,7 +587,7 @@ commandHandler(string message)
         }
         for(i = 0; i < len; i++)
         {
-            string testResult = llLinksetDataRead((string)testData[i]);
+            string testResult = llLinksetDataRead((string)testResultData[i]);
             log("Test result for \"" + llJsonGetValue(testResult, ["name"]) + "\": " + llJsonGetValue(testResult, ["result"]));
 #ifndef VERBOSE
             if(llJsonGetValue(testResult, ["result"]) == "Failure") {
@@ -620,19 +626,6 @@ default
         logInfo("Wiping LSD.");
         llLinksetDataReset();
 
-        logVerbose("Loading placeholders into LSD..");
-        DEFAULT_PLACEHOLDERS
-        logVerbose("Loading common actions into LSD..");
-        COMMON_ACTIONS
-#ifdef VERBOSE
-        logVerbose("Data saved in LSD:");
-        list keys = llLinksetDataListKeys(0, 0);
-        while(keys)
-        {
-            llOwnerSay("    " + (string)keys[0] + ": " + llLinksetDataRead((string)keys[0]));
-            keys = llDeleteSubList(keys, 0, 0);
-        }
-#endif
 #if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
         llListen(TEST_CHANNEL, _, NULL_KEY, _);
 #endif
