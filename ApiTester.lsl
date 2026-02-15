@@ -11,6 +11,9 @@
 
 // v1.0: Initial version - Voisin (Nensec Resident)
 // v1.1: Removed Boost framework and made tester completely notecard based, removing the need for a runner script - Voisin (Nensec Resident)
+// v1.1.1: Various bug fixes and optimizations - Voisin (Nensec Resident)
+// v1.1.2: Fixed bug in EXPECT. Removed touch events in favor of commands - Voisin (Nensec Resident)
+// v1.2: Added new action type ASSERT, Added falsey test for EXPECT - Voisin (Nensec Resident)
 
 // -- What is it
 
@@ -29,6 +32,18 @@
 //  - An attachable object. ApiTester_Relay.lsl lives in here as well. This object is meant to be temporary attached, as such it also requires to be Copy/Modify.
 // The rezzable object and attachable object need to be in the inventory of the tester object.
 
+// -- Commands
+
+// The tester utilizes a set of chat commands that allow you to drive the tester, commands are received on COMMAND_CHANNEL (default /9):
+// /9 load <testsuite> - Loads the test suite with the given name, names are equal to the notecard that defines them
+// /9 suites - Displays all the currently loaded test suites that are available
+// /9 reload - Reloads all the notecards, wipes the LSD of existing data regarding notecards
+// /9 loadtest <testname> - Removes all tests from the currently loaded test suite except for the given name, allowing you to run just this one test
+// /9 report - Reports the test results after a test suite has finished
+// /9 mem - Reports on the current memory usage of the script
+// /9 reset - Script resets ApiTest.lsl
+// /9 stop - Only available during a test run, gracefully stops the current test suite as soon as possible
+
 // -- Defining tests
 
 // Test are loaded via notecard and are formatted in JSON. You can write them in your IDE of choice that allows for JSON syntax validation and then simply copy over the text into the notecard.
@@ -38,13 +53,13 @@
 
 // Note: This schema is ignored by the tester when parsing in-game, you can leave it in your notecard.
 
-// -- Common actions
+// - Common actions
 
 // Define common functions that are required in many tests, this helps reducing the repetitiveness and ensure that you are generally doing the same thing.
 
 // For example: Your API requires a script to announce itself first before it will accept a command from the script, rather than writing the full SEND to authenticate as part of the test data simply define it once there and use it in place of an action.
 
-// - Available actions:
+// -- Available actions:
 
 // - SEND (0)
 // Send a message on a channel to kick off the test.
@@ -72,6 +87,7 @@
 //     - string value
 //     - integer time (in milliseconds)
 //     - integer type
+//     - integer inverse (inverts the logic if true (not 0), fails test if message is found)
 // - Types:
 //     - 0 (Beginning of test)
 //     - 1 (Since last SEND)
@@ -96,6 +112,26 @@
 // - Names however need to be unique for each.
 // - Parameters:
 //     - string name
+
+// -- ASSERT (6)
+// Sends a message that is meant to be recived by the <testsuite>_PH.lsl script. It can then do any kind of custom parsing and comparison it wants.
+// By default this is send via llRegionSayTo to the owner of the tester object on channel TEST_CHANNEL. However if you notice that size of the JSON is an issue for you due to the volume of messages
+// you can configure the tester to instead send it via llMessageLinked instead.
+// The message will be in JSON format, according to the scheme found in assert.schema.json (this can be found on the github linked above)
+// The ASSERT will be send to the processing helper script after waitTime has passed.
+//
+// The tester expects a message back on TEST_CHANNEL with the provided token as well as the answer of "fail" or "ok" prefixed with the "assert" command.
+// The tester will wait for a maximum of 500ms for a reply back.
+// Example: assert 7321d897-ad5f-f98c-11ea-f5a56e2399ff ok
+//
+// - Parameters:
+//     - integer waitTime (in milliseconds)
+//     - integer channel
+//     - integer type
+// - Types:
+//     - 0 (Beginning of test)
+//     - 1 (Since last SEND)
+//     - 2 (Since last RELAY)
 
 // - Placeholders
 // All parameters for actions have the ability to be replaced dynamically by a different value, something that is generally not known as a constant.
@@ -128,7 +164,7 @@
 // ####################################################################################
 
 // Turn off which logging you do not want by commenting out the log level. Turning all off will result in only the test result to be output.
-// Turning off logging will help a lot in script memory, it is recommended to only turn on logging when you are experiencing problems and when you do turn off irrelevant tests by commenting them out.
+// Turning off logging will help a lot in script memory, it is recommended to only turn on logging when you are experiencing problems. Additionally use the /9 loadtest <testname> command to load only the problematic test.
 // Logging adds a lot of memory!
 
 //#define INFO
@@ -148,6 +184,9 @@
 #define DUMMY_ATTACH "Attach" // The name of the Relay object to rez and attach when ATTACH is used. This object has to exist in the inventory where this tester script lives and must contain the ApiTester_Relay.lsl script.
 #define DUMMY_ATTACH_POINT 35 // See https://wiki.secondlife.com/wiki/LlAttachToAvatar for attachment points
 
+#define ASSERT_SEND_METHOD ASSERT_SEND_METHOD_CHAT // The method used to send ASSERT messages to the helper script, either via chat (ASSERT_SEND_METHOD_CHAT) on channel TEST_CHANNEL or via link message (ASSERT_SEND_METHOD_LINK) or have the processing helper script decide (ASSERT_SEND_METHOD_PH). This will add additional bytecode to support both methods.
+#define ASSERT_REPLY_TIMEOUT 500 // The time how long the tester will wait for the processing helper script to reply to ASSERT
+
 // ####################################################################################
 // -- Below here should not be edited by the user unless you know what you are doing --
 // ####################################################################################
@@ -162,6 +201,7 @@
 #define TESTSTATE_FAILURE 2
 #define TESTSTATE_INITIALIZING 3
 #define TESTSTATE_RUNNING 4
+#define TESTSTATE_CANCELLED 5
 
 #define TASKSTATE_IDLE 0
 #define TASKSTATE_SUCCESS 1
@@ -174,6 +214,7 @@
 #define ACTION_EXPECT 3
 #define ACTION_RELAY 4
 #define ACTION_ATTACH 5
+#define ACTION_ASSERT 6
 
 #define ASK_YES "Yes"
 #define ASK_NO "No"
@@ -193,6 +234,16 @@
 #define EXPECT_TYPE_SEND 1
 #define EXPECT_TYPE_RELAY 2
 
+#define ASSERT_OK "ok"
+#define ASSERT_FAIL "fail"
+#define ASSERT_REPLY "assert"
+#define ASSERT_SEND_METHOD_CHAT 0
+#define ASSERT_SEND_METHOD_LINK 1
+#define ASSERT_SEND_METHOD_PH 2
+#define ASSERT_TYPE_BEGINNING 0
+#define ASSERT_TYPE_SEND 1
+#define ASSERT_TYPE_RELAY 2
+
 #define COMMAND_LOAD load
 #define COMMAND_RELOAD reload
 #define COMMAND_START start
@@ -201,6 +252,7 @@
 #define COMMAND_STOP stop
 #define COMMAND_REPORT report
 #define COMMAND_RESET reset
+#define COMMAND_LOADTEST loadtest
 
 #define INVALID_PLACEHOLDER JSON_INVALID
 
@@ -209,8 +261,8 @@
         llLinksetDataWrite("TESTCHANNEL", (string)TEST_CHANNEL);
 
 #define COMMON_ACTIONS \
-        llLinksetDataWrite("C_REZ_DUMMY", DEFER_STR({"n":"Rez dummy","a":ACTION_REZ,"p":["DUMMY",2.5]})); \
-        llLinksetDataWrite("C_ATTACH_DUMMY", DEFER_STR({"n":"Attach dummy","a":ACTION_ATTACH,"p":["ATTACH"]}));
+        llLinksetDataWrite("C_REZ_DUMMY", DEFER_STR({"name":"Rez dummy","actionType":ACTION_REZ,"parameters":["DUMMY",2.5]})); \
+        llLinksetDataWrite("C_ATTACH_DUMMY", DEFER_STR({"name":"Attach dummy","actionType":ACTION_ATTACH,"parameters":["ATTACH"]}));
 
 // -- Global variables
 
@@ -222,24 +274,54 @@ integer _activeTestState = TESTSTATE_IDLE; // Current state of the test
 
 integer _currentTask = 0; // The current task
 string _currentTaskData; // JSON data of current task
-integer _currentTaskState = TESTSTATE_IDLE; // Current state of the current task
+integer _currentTaskState = TASKSTATE_IDLE; // Current state of the current task
 string _currentTaskFailureMessage;
 
 list _receivedMessage = []; // Strided list of 3: [message, channel, timestamp]
 list _rezzedDummies = []; // All of the dummies rezzed during the current test
 
 // Parameters are global, this is to lower memory fragmentation
-string  _p1; // Parameter 1 of current action
-string  _p2; // Parameter 2 of current action
-string  _p3; // Parameter 3 of current action
-string  _p4; // Parameter 4 of current action
+string  _currentActionParam1; // Parameter 1 of current action
+string  _currentActionParam2; // Parameter 2 of current action
+string  _currentActionParam3; // Parameter 3 of current action
+string  _currentActionParam4; // Parameter 4 of current action
+string  _currentActionParam5; // Parameter 5 of current action
 
 float _rezTime; // When was the last REZ
 float _sendTime; // When was the last SEND
 float _relayTime; // when was the last RELAY
 float _askTime; // when was the last ASK
+float _assertTime; // When was the last ASSERT
 
-// -- Helper functions
+#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
+integer _assertSendType; // This is only present when ASSERT_SEND_METHOD is _PH and keeps track of what assert type the PH script wants (chat or link)
+#endif
+key _assertToken; // This is the token given to the PH script to do its ASSERT logic, the token is compared upon receiving an answer such that the reply is linked to the correct ASSERT (in case of a timeout)
+
+float _timeToCheck; // Bytecode saver since this is used twice now
+
+integer _expectLastMessageIndex; // This helps keep script time lower by keeping track what EXPECT already checked in between timer loops so we aren't going over the entire _receivedMessage list every 0.1 sec
+
+// Logging
+
+log(string msg) { if(_activeTestState != TESTSTATE_IDLE) llOwnerSay("[V's Tester] [" + (string)_tests[_activeTest] + "] " + msg); else llOwnerSay("[V's Tester] " + msg); }
+#ifdef INFO
+    logInfo(string msg) { log("[INFO] " + msg); }
+#else
+    #define logInfo(msg)
+#endif
+#ifdef VERBOSE
+    logVerbose(string msg) { log("[VERBOSE] " + msg); }
+#else
+    #define logVerbose(msg)
+#endif
+#ifdef LISTENER
+    logListener(string msg, integer channel, float time) { log("[LISTENER] [" + (string)channel + "] [" + (string)time + "] " + msg); }
+#else
+    #define logListener(msg, channel, time)
+#endif
+
+// Misc functions
 
 string getParameter(string param)
 {
@@ -279,25 +361,6 @@ string getParameter(string param)
     return result + param;
 }
 
-log(string msg) { if(_activeTestState != TESTSTATE_IDLE) llOwnerSay("[V's Tester] [" + (string)_tests[_activeTest] + "] " + msg); else llOwnerSay("[V's Tester] " + msg); }
-#ifdef INFO
-    logInfo(string msg) { log("[INFO] " + msg); }
-#else
-    #define logInfo(msg)
-#endif
-#ifdef VERBOSE
-    logVerbose(string msg) { log("[VERBOSE] " + msg); }
-#else
-    #define logVerbose(msg)
-#endif
-#ifdef LISTENER
-    logListener(string msg, integer channel, float time) { log("[LISTENER] [" + (string)channel + "] [" + (string)time + "] " + msg); }
-#else
-    #define logListener(msg, channel, time)
-#endif
-
-// Misc functions
-
 #if defined(INFO) || defined(VERBOSE)
 reportTaskState()
 {
@@ -331,13 +394,16 @@ loadNextTask()
         _currentTaskState = TASKSTATE_IDLE;
         _currentTaskFailureMessage = "";
 
-        logInfo("Next task is: " + llJsonGetValue(_currentTaskData, ["n"]));
+        _assertToken = NULL_KEY;
+        _assertTime = 0;
+
+        logInfo("Next task is: " + llJsonGetValue(_currentTaskData, ["name"]));
     }
 }
 
 list getTaskActions()
 {
-    list actions = llJson2List(llJsonGetValue(llLinksetDataRead("T_" + (string)_tests[_activeTest]), ["a"]));
+    list actions = llJson2List(llJsonGetValue(llLinksetDataRead("T_" + (string)_tests[_activeTest]), ["actions"]));
     integer i;
     integer len = llGetListLength(actions);
     for(i = 0; i < len; i++)
@@ -363,7 +429,7 @@ loadNotecards()
         log("No notecards found, add a notecard with test data to begin.");
     else
         log("Found 1 notecard, parsing it now..");
- 
+
     string name;
     string queryId;
     while(count--)
@@ -377,10 +443,10 @@ loadNotecards()
 
 saveRezzedDummy(key id)
 {
-    logVerbose("Saving placeholder \"" + _p1 + "\" with value: \"" + (string)id + "\".");
-    llLinksetDataWrite(_p1, id); // Save the rezzed object in LSD so it can be used as a placeholder
-    llRegionSayTo(id, TEST_CHANNEL, RELAY_COMMAND_INIT + " " + _p1);
-    _rezzedDummies += [_p1 + ":" + (string)id];
+    logVerbose("Saving placeholder \"" + _currentActionParam1 + "\" with value: \"" + (string)id + "\".");
+    llLinksetDataWrite(_currentActionParam1, id); // Save the rezzed object in LSD so it can be used as a placeholder
+    llRegionSayTo(id, TEST_CHANNEL, RELAY_COMMAND_INIT + " " + _currentActionParam1);
+    _rezzedDummies += [_currentActionParam1 + ":" + (string)id]; // Keep track of rezzed dummies so we can clean up memory and LSD at the end of the test
     _currentTaskState = TASKSTATE_SUCCESS;
 }
 
@@ -389,7 +455,7 @@ killOtherScripts()
     integer count = llGetInventoryNumber(INVENTORY_SCRIPT);
     string name;
     string thisScriptName = llGetScriptName();
-    while(count--) // Kill other scripts in the tester
+    while(count--) // Kill other scripts in the tester object, this is to ensure there is no cross contamination as well as allow for PH scripts to do their init logic in default state_entry
     {
         name = llGetInventoryName(INVENTORY_SCRIPT, count);
         if(name != thisScriptName)
@@ -401,17 +467,23 @@ commandHandler(string message)
 {
     list parts = llParseString2List(message, [" "], []);
     string cmd = (string)parts[0];
-    if(cmd == DEFER_STR(COMMAND_RELOAD))
+    if(cmd == DEFER_STR(COMMAND_RELOAD)) // Reloads all notecards, wiping currently loaded from LSD
         loadNotecards();
-    else if(cmd == DEFER_STR(COMMAND_LOAD) && (string)parts[1] != "")
+    else if(cmd == DEFER_STR(COMMAND_LOAD) && (string)parts[1] != "") // Loads a specific test suite, it's name must match that of the notecard originally read
     {
-        string name = (string)parts[1];
+        string name = llDumpList2String(llList2List(parts, 1, -1), " ");
         string json = llLinksetDataRead("NC_" + name);
         if(llJsonValueType(json, []) != JSON_OBJECT)
-            log("There is no suite called \"" + name + "\"" + DEFER_STR(View available suites using DEFER_STR(/COMMAND_CHANNEL COMMAND_SUITES)));
+            log("There is no suite called \"" + name + "\". " + DEFER_STR(View available suites using DEFER_STR(/COMMAND_CHANNEL COMMAND_SUITES)));
         else
         {
-            llLinksetDataDeleteFound("^(C|T|R)_.*$", _);
+            logVerbose("Removing keys not associated with test suites..");
+            llLinksetDataDeleteFound("^([^N]|N[^C]|NC[^_]).*$", _);
+
+            logVerbose("Loading placeholders into LSD..");
+            DEFAULT_PLACEHOLDERS
+            logVerbose("Loading common actions into LSD..");
+            COMMON_ACTIONS
 
             log("Loading test suite \"" + llJsonGetValue(json, ["name"]) + "\"");
             _tests = [];
@@ -443,7 +515,27 @@ commandHandler(string message)
             log(DEFER_STR(Loading finished. Use the command DEFER_STR(/COMMAND_CHANNEL COMMAND_START) to start the test suite));
         }
     }
-    else if(cmd == DEFER_STR(COMMAND_START))
+    else if(cmd == DEFER_STR(COMMAND_LOADTEST) && (string)parts[1] != "") // Loads a specific test from within the currently loaded suite
+    {
+        if(_currentSuite)
+        {
+            string name = llDumpList2String(llList2List(parts, 1, -1), " ");
+            integer loadedTest = llListFindList(_tests, [name]);
+            if(loadedTest)
+            {
+                _tests = [name];
+                log("Setting only test to be run to be \"" + name + "\". To restore run " + DEFER_STR(/COMMAND_CHANNEL COMMAND_LOAD) + " " + _currentSuite);
+            }
+            else
+            {
+                log("Test \"" + name + "\" was not found in loaded tests for suite \"" + _currentSuite + "\".");     
+                logVerbose("Available tests: " + llDumpList2String(_tests, ", "));
+            }
+        }
+        else
+            log(DEFER_STR(There is no suite selected. Run the following command to load a test suite: DEFER_STR(/COMMAND_CHANNEL COMMAND_LOAD <name>)));
+    }
+    else if(cmd == DEFER_STR(COMMAND_START)) // Starts the currently loaded test suite
     {
         if(_currentSuite)
         {
@@ -454,7 +546,7 @@ commandHandler(string message)
         else
             log(DEFER_STR(There is no suite selected. Run the following command to load a test suite: DEFER_STR(/COMMAND_CHANNEL COMMAND_LOAD <name>)));
     }
-    else if(cmd == DEFER_STR(COMMAND_SUITES))
+    else if(cmd == DEFER_STR(COMMAND_SUITES)) // Dumps a list of all currently loaded test suites from notecards
     {
         list suites = llLinksetDataFindKeys("^NC_.*$", 0, 0);
         if(suites)
@@ -472,7 +564,7 @@ commandHandler(string message)
         else
             log(DEFER_STR(No suites found in LSD. Insert notecards with test data and use: DEFER_STR(/COMMAND_CHANNEL COMMAND_RELOAD)));
     }
-    else if(cmd == DEFER_STR(COMMAND_MEM))
+    else if(cmd == DEFER_STR(COMMAND_MEM)) // Dumps info about current memory usage
     {
         integer memused = llGetUsedMemory();
         integer memmax = llGetMemoryLimit();
@@ -483,11 +575,11 @@ commandHandler(string message)
         log("Memory Used: " + (string)memused + "\nMemory Free: " + (string)memfree + "\nMemory Limit: " + (string)memmax + "\nPercentage of Memory Usage: " + (string)memperc + "%.");
         log("LSD available: " + (string)lsdAvailable + " / 131072 (" + (string)((integer)(100 * (float)lsdAvailable/131072)) + "%).");
     }
-    else if(cmd == DEFER_STR(COMMAND_REPORT))
+    else if(cmd == DEFER_STR(COMMAND_REPORT)) // Reports on test results, if present
     {
-        list testData = llLinksetDataFindKeys("^R_.*$", 0, 0);
+        list testResultData = llLinksetDataFindKeys("^R_.*$", 0, 0);
         integer i;
-        integer len = llGetListLength(testData);
+        integer len = llGetListLength(testResultData);
         if(len == 0)
         {
             log("There are no test results available.");
@@ -495,22 +587,22 @@ commandHandler(string message)
         }
         for(i = 0; i < len; i++)
         {
-            string testResult = llLinksetDataRead((string)testData[i]);
-            log("Test result for \"" + llJsonGetValue(testResult, ["n"]) + "\": " + llJsonGetValue(testResult, ["r"]));
+            string testResult = llLinksetDataRead((string)testResultData[i]);
+            log("Test result for \"" + llJsonGetValue(testResult, ["name"]) + "\": " + llJsonGetValue(testResult, ["result"]));
 #ifndef VERBOSE
-            if(llJsonGetValue(testResult, ["r"]) == "Failure") {
+            if(llJsonGetValue(testResult, ["result"]) == "Failure") {
 #endif
             log("Task results:");
-            list taskResults = llJson2List(llJsonGetValue(testResult, ["t"]));
+            list taskResults = llJson2List(llJsonGetValue(testResult, ["actions"]));
             integer j;
             integer taskLen = llGetListLength(taskResults);
             for(j = 0; j < taskLen; j++)
             {
                 string taskResult = (string)taskResults[j];
-                string name = llJsonGetValue(taskResult, ["n"]);
-                string result = llJsonGetValue(taskResult, ["r"]);
+                string name = llJsonGetValue(taskResult, ["name"]);
+                string result = llJsonGetValue(taskResult, ["result"]);
                 if(result == "Failure")
-                    log("  \"" + name + "\": " + result + ". Reason: " + llJsonGetValue(taskResult, ["m"]) + ".");
+                    log("  \"" + name + "\": " + result + ". Reason: " + llJsonGetValue(taskResult, ["message"]) + ".");
                 else
                     log("  \"" + name + "\": " + result + ".");
             }
@@ -523,7 +615,7 @@ commandHandler(string message)
         llResetScript();
 }
 
-// -- States
+// States
 
 default
 {
@@ -534,21 +626,10 @@ default
         logInfo("Wiping LSD.");
         llLinksetDataReset();
 
-        logVerbose("Loading placeholders into LSD..");
-        DEFAULT_PLACEHOLDERS
-        logVerbose("Loading common actions into LSD..");
-        COMMON_ACTIONS
-#ifdef VERBOSE
-        logVerbose("Data saved in LSD:");
-        list keys = llLinksetDataListKeys(0, 0);
-        while(keys)
-        {
-            llOwnerSay("    " + (string)keys[0] + ": " + llLinksetDataRead((string)keys[0]));
-            keys = llDeleteSubList(keys, 0, 0);
-        }
+#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
+        llListen(TEST_CHANNEL, _, NULL_KEY, _);
 #endif
         loadNotecards();
-
         llListen(COMMAND_CHANNEL, _, llGetOwner(), _);
     }
 
@@ -602,6 +683,16 @@ default
 
     listen(integer channel, string name, key id, string message)
     {
+#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
+        if(channel == TEST_CHANNEL)
+        {
+            if(message == "asserttype chat")
+                _assertSendType = ASSERT_SEND_METHOD_CHAT;
+            else if(message == "asserttype link")
+                _assertSendType = ASSERT_SEND_METHOD_LINK;
+            return;
+        }
+#endif
         commandHandler(message);
     }
 
@@ -653,7 +744,7 @@ state load_next_test
             string testName = (string)_tests[_activeTest];
             logVerbose("Loading data for test: \"" + testName + "\".");
             string testJson = llLinksetDataRead("T_" + testName);
-            list dependencies = llJson2List(llJsonGetValue(testJson, ["d"]));
+            list dependencies = llJson2List(llJsonGetValue(testJson, ["dependencies"]));
             list actions = getTaskActions();
             logVerbose("Dependencies: " + llDumpList2String(dependencies, ", "));
             if(dependencies)
@@ -663,19 +754,19 @@ state load_next_test
                 for(i = 0; i < len; i++)
                 {
                     string dependencyTestResult = llLinksetDataRead("R_" + (string)dependencies[i]);
-                    if(llJsonGetValue(dependencyTestResult, ["r"]) != "Success")
+                    if(llJsonGetValue(dependencyTestResult, ["result"]) != "Success")
                     {
-                        string testResult = llJsonSetValue("{}", ["n"], (string)_tests[_activeTest]);
-                        testResult = llJsonSetValue(testResult, ["r"], "Skipped - Dependencies not met");
+                        string testResult = llJsonSetValue("{}", ["name"], (string)_tests[_activeTest]);
+                        testResult = llJsonSetValue(testResult, ["result"], "Skipped - Dependencies not met");
                         len = llGetListLength(actions);
                         for(i = 0; i < len; i++)
                         {
                             string taskResult = "{}";
-                            taskResult = llJsonSetValue(taskResult, ["n"], llJsonGetValue((string)actions[i], ["n"]));
-                            taskResult = llJsonSetValue(taskResult, ["a"], llJsonGetValue((string)actions[i], ["a"]));
-                            taskResult = llJsonSetValue(taskResult, ["r"], "Not run");
+                            taskResult = llJsonSetValue(taskResult, ["name"], llJsonGetValue((string)actions[i], ["name"]));
+                            taskResult = llJsonSetValue(taskResult, ["actionType"], llJsonGetValue((string)actions[i], ["actionType"]));
+                            taskResult = llJsonSetValue(taskResult, ["result"], "Not run");
 
-                            testResult = llJsonSetValue(testResult, ["t", JSON_APPEND], taskResult);
+                            testResult = llJsonSetValue(testResult, ["actions", JSON_APPEND], taskResult);
                         }
 
                         llLinksetDataWrite("R_" + (string)_tests[_activeTest], testResult);
@@ -714,9 +805,9 @@ state run_test
         for(i = 0; i < llGetListLength(actions); i++)
         {
             string task = llList2String(actions, i);
-            if ((integer)llJsonGetValue(task, ["a"]) == ACTION_EXPECT)
+            if ((integer)llJsonGetValue(task, ["actionType"]) == ACTION_EXPECT)
             {
-                list taskParams = llJson2List(llJsonGetValue(task, ["p"]));
+                list taskParams = llJson2List(llJsonGetValue(task, ["parameters"]));
                 string channel = getParameter((string)taskParams[0]);
                 llListen((integer)channel, _, NULL_KEY, _);
             }
@@ -750,30 +841,32 @@ state run_test
         list actions = getTaskActions();
 
         string testName = (string)_tests[_activeTest];
-        string testResult = llJsonSetValue("{}", ["n"], testName);
+        string testResult = llJsonSetValue("{}", ["name"], testName);
         string taskResult;
         if(_activeTestState == TESTSTATE_SUCCESS)        
-            testResult = llJsonSetValue(testResult, ["r"], "Success");
+            testResult = llJsonSetValue(testResult, ["result"], "Success");
+        else if(_activeTestState == TESTSTATE_CANCELLED)
+            testResult = llJsonSetValue(testResult, ["result"], "Cancelled");
         else
-            testResult = llJsonSetValue(testResult, ["r"], "Failure");
+            testResult = llJsonSetValue(testResult, ["result"], "Failure");
 
         len = llGetListLength(actions);
         for(i = 0; i < len; i++)
         {
             taskResult = "{}";
-            taskResult = llJsonSetValue(taskResult, ["n"], llJsonGetValue((string)actions[i], ["n"]));
-            taskResult = llJsonSetValue(taskResult, ["a"], llJsonGetValue((string)actions[i], ["a"]));
+            taskResult = llJsonSetValue(taskResult, ["name"], llJsonGetValue((string)actions[i], ["name"]));
+            taskResult = llJsonSetValue(taskResult, ["actionType"], llJsonGetValue((string)actions[i], ["actionType"]));
             if(i == _currentTask && _activeTestState == TESTSTATE_FAILURE)
             {
-                taskResult = llJsonSetValue(taskResult, ["r"], "Failure");
-                taskResult = llJsonSetValue(taskResult, ["m"], _currentTaskFailureMessage);
+                taskResult = llJsonSetValue(taskResult, ["result"], "Failure");
+                taskResult = llJsonSetValue(taskResult, ["message"], _currentTaskFailureMessage);
             }
             else if(i > _currentTask  && _activeTestState == TESTSTATE_FAILURE)
-                taskResult = llJsonSetValue(taskResult, ["r"], "Not run");
+                taskResult = llJsonSetValue(taskResult, ["result"], "Not run");
             else
-                taskResult = llJsonSetValue(taskResult, ["r"], "Success");
+                taskResult = llJsonSetValue(taskResult, ["result"], "Success");
 
-            testResult = llJsonSetValue(testResult, ["t", JSON_APPEND], taskResult);
+            testResult = llJsonSetValue(testResult, ["actions", JSON_APPEND], taskResult);
         }
 
         llLinksetDataWrite("R_" + testName, testResult);
@@ -784,10 +877,13 @@ state run_test
         _currentTaskFailureMessage = "";
         _currentTask = 0;
 
+        _assertToken = NULL_KEY;
+
         _rezTime = 0;
         _askTime = 0;
         _relayTime = 0;
         _sendTime = 0;
+        _assertTime = 0;
     }
 
     listen(integer channel, string name, key id, string message)
@@ -795,7 +891,8 @@ state run_test
         logListener(message, channel, llGetTime());
         if(channel == TEST_CHANNEL)
         {
-            if((integer)llJsonGetValue(_currentTaskData, ["a"]) == ACTION_ASK)
+            integer currentAction = (integer)llJsonGetValue(_currentTaskData, ["actionType"]);
+            if(currentAction == ACTION_ASK)
             {
                 if(message == ASK_YES)
                     _currentTaskState = TASKSTATE_SUCCESS;
@@ -805,10 +902,30 @@ state run_test
                 logVerbose("ASK result: Got \"" + message + "\".");
                 return;
             }
-            else if((integer)llJsonGetValue(_currentTaskData, ["a"]) == ACTION_ATTACH)
+            else if(currentAction == ACTION_ATTACH)
             {
                 saveRezzedDummy(id);
                 return;
+            }
+            else if(currentAction == ACTION_ASSERT)
+            {
+                // assert 7321d897-ad5f-f98c-11ea-f5a56e2399ff ok
+                string cmd = llGetSubString(message, 0, 5);
+                if(cmd == ASSERT_REPLY)
+                {
+                    key token = (key)llGetSubString(message, 7, 42);
+                    if(token != NULL_KEY && token == _assertToken)
+                    {
+                        string result = llGetSubString(message, 44, -1);
+                        if(result == ASSERT_OK)
+                            _currentTaskState = TASKSTATE_SUCCESS;
+                        if(result == ASSERT_FAIL)
+                            _currentTaskState = TASKSTATE_FAILURE;
+                    }                
+                
+                    logVerbose("ASSERT result: Got \"" + message + "\".");
+                    return;
+                }
             }
         }
         else if(channel == COMMAND_CHANNEL)
@@ -817,6 +934,8 @@ state run_test
             {
                 _activeTest = llGetListLength(_tests);
                 _currentTaskState = TASKSTATE_FAILURE;
+                _activeTestState = TESTSTATE_CANCELLED;
+                llSetTimerEvent(0);
             }
         }
 
@@ -825,7 +944,7 @@ state run_test
 
     object_rez(key id)
     {
-        if((integer)llJsonGetValue(_currentTaskData, ["a"]) == ACTION_REZ) // ATTACH will send a message when it attaches
+        if((integer)llJsonGetValue(_currentTaskData, ["actionType"]) == ACTION_REZ) // ATTACH will send a message when it attaches
             saveRezzedDummy(id);
         else
             llRegionSayTo(id, TEST_CHANNEL, RELAY_COMMAND_ATTACH + " " + (string)DUMMY_ATTACH_POINT);
@@ -839,35 +958,41 @@ state run_test
         if(_currentTaskState == TASKSTATE_IDLE)
         {
             list placeholderChecks = [];
-            list params = llJson2List(llJsonGetValue(_currentTaskData, ["p"]));
+            list params = llJson2List(llJsonGetValue(_currentTaskData, ["parameters"]));
 
             // Get parameters and replace placeholders, check if placeholder subsitution was succesful and if not fail the test
-            _p1 = getParameter((string)params[0]);
-            if(_p1 == INVALID_PLACEHOLDER)
+            _currentActionParam1 = getParameter((string)params[0]);
+            if(_currentActionParam1 == INVALID_PLACEHOLDER)
             {
                 logInfo("Placeholder in p1 is invalid.");
                 placeholderChecks += [(string)params[0]];            
             }
-            _p2 = getParameter((string)params[1]);
-            if(_p2 == INVALID_PLACEHOLDER)
+            _currentActionParam2 = getParameter((string)params[1]);
+            if(_currentActionParam2 == INVALID_PLACEHOLDER)
             {
                 logInfo("Placeholder in p2 is invalid.");
                 placeholderChecks += [(string)params[1]];
             }
-            _p3 = getParameter((string)params[2]);
-            if(_p3 == INVALID_PLACEHOLDER)
+            _currentActionParam3 = getParameter((string)params[2]);
+            if(_currentActionParam3 == INVALID_PLACEHOLDER)
             {
                 logInfo("Placeholder in p3 is invalid.");
                 placeholderChecks += [(string)params[2]];
             }
-            _p4 = getParameter((string)params[3]);
-            if(_p4 == INVALID_PLACEHOLDER)
+            _currentActionParam4 = getParameter((string)params[3]);
+            if(_currentActionParam4 == INVALID_PLACEHOLDER)
             {
                 logInfo("Placeholder in p4 is invalid.");
                 placeholderChecks += [(string)params[3]];
             }
+            _currentActionParam5 = getParameter((string)params[4]);
+            if(_currentActionParam4 == INVALID_PLACEHOLDER)
+            {
+                logInfo("Placeholder in p5 is invalid.");
+                placeholderChecks += [(string)params[4]];
+            }
 
-            logVerbose("Parameters: p1: \"" + _p1 + "\" p2: \"" + _p2 + "\" p3: \"" + _p3 + "\" p4: \"" + _p4 + "\"");
+            logVerbose("Parameters: p1: \"" + _currentActionParam1 + "\" p2: \"" + _currentActionParam2 + "\" p3: \"" + _currentActionParam3 + "\" p4: \"" + _currentActionParam4 + "\" p5: \"" + _currentActionParam5 + "\"");
             if(placeholderChecks)
             {
                 logInfo("There was a problem with a placeholder.");
@@ -879,15 +1004,15 @@ state run_test
             }
         }
 
-        integer currentActionType = (integer)llJsonGetValue(_currentTaskData, ["a"]);
+        integer currentActionType = (integer)llJsonGetValue(_currentTaskData, ["actionType"]);
         if(currentActionType == ACTION_REZ || currentActionType == ACTION_ATTACH)
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                if(llLinksetDataRead(_p1))
+                if(llLinksetDataRead(_currentActionParam1))
                 {
-                    logInfo("Unable to rez with name \"" + _p1 + "\" as a placeholder with that name already exists.");
-                    _currentTaskFailureMessage = "Placeholder with name \"" + _p1 + "\" already exists.";
+                    logInfo("Unable to rez with name \"" + _currentActionParam1 + "\" as a placeholder with that name already exists.");
+                    _currentTaskFailureMessage = "Placeholder with name \"" + _currentActionParam1 + "\" already exists.";
                     _currentTaskState = TASKSTATE_FAILURE;
                 }
                 else
@@ -895,7 +1020,7 @@ state run_test
                     if(currentActionType == ACTION_REZ)
                     {
                         vector myPos = llGetPos();
-                        vector forwardOffset = <(float)_p2, 0.0, 0.0>; // Place the rezzed object x meters away based on the parameters of REZ
+                        vector forwardOffset = <(float)_currentActionParam2, 0.0, 0.0>; // Place the rezzed object x meters away based on the parameters of REZ
                         vector targetPos = myPos + (forwardOffset * llGetRot());
 
                         list ray = llCastRay(targetPos + <0,0,1>, targetPos - <0,0,4>, [RC_REJECT_TYPES, RC_REJECT_AGENTS]);
@@ -935,9 +1060,9 @@ state run_test
             if(_currentTaskState == TASKSTATE_IDLE)
             {
 #if ASK_TYPE == ASK_TYPE_CHAT
-                llOwnerSay(_p1 + " [secondlife:///app/chat/" + (string)TEST_CHANNEL + "/" + ASK_YES + " " + ASK_YES + "] or [secondlife:///app/chat/" + (string)TEST_CHANNEL + "/" + ASK_NO + " " + ASK_NO + "]");
+                llOwnerSay(_currentActionParam1 + " [secondlife:///app/chat/" + (string)TEST_CHANNEL + "/" + ASK_YES + " " + ASK_YES + "] or [secondlife:///app/chat/" + (string)TEST_CHANNEL + "/" + ASK_NO + " " + ASK_NO + "]");
 #elif ASK_TYPE == ASK_TYPE_DIALOG
-                llDialog(llGetOwner(), _p1, [ASK_YES, ASK_NO], TEST_CHANNEL);
+                llDialog(llGetOwner(), _currentActionParam1, [ASK_YES, ASK_NO], TEST_CHANNEL);
 #else
 #error "Invalid configuration for ASK_TYPE"
 #endif
@@ -958,16 +1083,16 @@ state run_test
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                if((key)_p1 == NULL_KEY)
+                if((key)_currentActionParam1 == NULL_KEY)
                 {
                     _currentTaskState = TASKSTATE_FAILURE;
                     _currentTaskFailureMessage = "Target key was NULL_KEY.";
                 }
                 else
                 {
-                    logVerbose("Sending: \"" + _p3 + "\" on channel: \"" + _p2 + "\"");
+                    logVerbose("Sending: \"" + _currentActionParam3 + "\" on channel: \"" + _currentActionParam2 + "\"");
 
-                    llRegionSayTo((key)_p1, (integer)_p2, _p3);
+                    llRegionSayTo((key)_currentActionParam1, (integer)_currentActionParam2, _currentActionParam3);
                     _sendTime = llGetTime();
                     _currentTaskState = TASKSTATE_SUCCESS;
                 }
@@ -977,21 +1102,21 @@ state run_test
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                if((key)_p1 == NULL_KEY)
+                if((key)_currentActionParam1 == NULL_KEY)
                 {
                     _currentTaskState = TASKSTATE_FAILURE;
                     _currentTaskFailureMessage = "Target key was NULL_KEY.";
                 }
-                else if((integer)_p4 != RELAY_TYPE_REGIONSAYTO && (integer)_p4 != RELAY_TYPE_SAY && (integer)_p4 != RELAY_TYPE_WHISPER && (integer)_p4 != RELAY_TYPE_SHOUT)
+                else if((integer)_currentActionParam4 != RELAY_TYPE_REGIONSAYTO && (integer)_currentActionParam4 != RELAY_TYPE_SAY && (integer)_currentActionParam4 != RELAY_TYPE_WHISPER && (integer)_currentActionParam4 != RELAY_TYPE_SHOUT)
                 {
                     _currentTaskState = TASKSTATE_FAILURE;
-                    _currentTaskFailureMessage = "Invalid value type \"" + _p4 + "\" specified.";
+                    _currentTaskFailureMessage = "Invalid value type \"" + _currentActionParam4 + "\" specified.";
                     return;
                 }
                 else
                 {
-                    logVerbose("Sending message of type: " + _p4 + " to be send on channel: " + _p2 + " message: " + _p3);
-                    llRegionSayTo((key)_p1, TEST_CHANNEL, RELAY_COMMAND_RELAY + " " + _p4 + " " + _p2 + " " + _p3);
+                    logVerbose("Sending message of type: " + _currentActionParam4 + " to be send on channel: " + _currentActionParam2 + " message: " + _currentActionParam3);
+                    llRegionSayTo((key)_currentActionParam1, TEST_CHANNEL, RELAY_COMMAND_RELAY + " " + _currentActionParam4 + " " + _currentActionParam2 + " " + _currentActionParam3);
                     _relayTime = llGetTime();
                     _currentTaskState = TASKSTATE_SUCCESS;
                 }
@@ -999,47 +1124,135 @@ state run_test
         }
         else if(currentActionType == ACTION_EXPECT)
         {
-            if(_currentTaskState == TASKSTATE_IDLE || _currentTaskState == TASKSTATE_WAITING)
+            if(_currentTaskState == TASKSTATE_IDLE)
             {
-                float timeToCheck = 0;
+                if((integer)_currentActionParam4 == EXPECT_TYPE_SEND)
+                    _timeToCheck = _sendTime;
+                else if((integer)_currentActionParam4 == EXPECT_TYPE_RELAY)
+                    _timeToCheck = _relayTime;
 
-                if((integer)_p4 == EXPECT_TYPE_SEND)
-                    timeToCheck = _sendTime;
-                else if((integer)_p4 == EXPECT_TYPE_RELAY)
-                    timeToCheck = _relayTime;
-
-                integer i;
+                _expectLastMessageIndex = 0;
+                _currentTaskState = TASKSTATE_WAITING;
+            }
+            if(_currentTaskState == TASKSTATE_WAITING)
+            {
                 integer len = llGetListLength(_receivedMessage);
                 logVerbose("Received messages at this point: " + llDumpList2String(_receivedMessage, ", "));
-                for(i = 0; i < len; i += 3)
+                string compare = _currentActionParam2;
+                integer wildcardIndex = llSubStringIndex(compare, "*");
+                if(wildcardIndex != -1)
+                    compare = llGetSubString(compare, 0, wildcardIndex - 1);
+                for(; _expectLastMessageIndex < len; _expectLastMessageIndex += 3)
                 {
-                    if((float)_receivedMessage[i + 2] > timeToCheck)
+                    if((float)_receivedMessage[_expectLastMessageIndex + 2] > _timeToCheck)
                     {
-                        if((integer)_receivedMessage[i + 1] == (integer)_p1)
+                        if((integer)_receivedMessage[_expectLastMessageIndex + 1] == (integer)_currentActionParam1)
                         {
-                            string message = (string)_receivedMessage[i];
-                            string compare = _p2;
-                            if(llSubStringIndex(compare, "*") != -1)
-                            {
-                                message = llGetSubString(message, 0, llSubStringIndex(compare, "*") - 1);
-                                compare = llGetSubString(compare, 0, llStringLength(compare) - 2);
-                            }
+                            string message = (string)_receivedMessage[_expectLastMessageIndex];
+                            if(wildcardIndex != -1)
+                                message = llGetSubString(message, 0, wildcardIndex - 1);
                             logVerbose("Current string comparison: " + message + " to compare it to: " + compare);
                             if(message == compare)
                             {
-                                _currentTaskState = TASKSTATE_SUCCESS;
-                                i = len;
+                                if(_currentActionParam5)
+                                {
+                                    _currentTaskFailureMessage = "Found \"" + _currentActionParam2 + "\" among messages received.";
+                                    _currentTaskState = TASKSTATE_FAILURE;
+                                    jump endfor;
+                                }
+                                else
+                                {
+                                    _currentTaskState = TASKSTATE_SUCCESS;
+                                    jump endfor;
+                                }
                             }
                         }
                     }
                 }
+                @endfor;
 
-                if(_currentTaskState != TASKSTATE_SUCCESS)
+                if(_currentTaskState == TASKSTATE_WAITING)
                 {
-                    if(llGetTime() > (timeToCheck + (integer)_p3))
+                    if(llGetTime() > (_timeToCheck + ((float)_currentActionParam3 / 1000)))
                     {
-                        _currentTaskFailureMessage = "Unable to find \"" + _p2 + "\" among messages received.";
+                        if(_currentActionParam5)                        
+                            _currentTaskState = TASKSTATE_SUCCESS;
+                        else
+                        {
+                            _currentTaskFailureMessage = "Unable to find \"" + _currentActionParam2 + "\" among messages received.";
+                            _currentTaskState = TASKSTATE_FAILURE;
+                        }
+                    }
+                }
+            }
+        }
+        else if(currentActionType == ACTION_ASSERT)
+        {
+            if(_currentTaskState == TASKSTATE_IDLE)
+            {
+                if(_assertTime == 0 && (integer)_currentActionParam1 != 0)
+                    _assertTime = llGetTime();
+
+                if((integer)_currentActionParam3 == ASSERT_TYPE_SEND)
+                    _timeToCheck = _sendTime;
+                else if((integer)_currentActionParam3 == ASSERT_TYPE_RELAY)
+                    _timeToCheck = _relayTime;
+
+                _currentTaskState = TASKSTATE_WAITING;
+            }
+            
+            if(_currentTaskState == TASKSTATE_WAITING)
+            {
+                if(_assertToken)
+                {
+                    if(llGetTime() > (_assertTime + ((float)ASSERT_REPLY_TIMEOUT / 1000)))
+                    {
+                        _currentTaskFailureMessage = "Did not receive a reply in time from the PH script.";
                         _currentTaskState = TASKSTATE_FAILURE;
+                    }
+                }
+                else
+                {
+                    if(llGetTime() > (_assertTime + ((float)_currentActionParam1 / 1000)))
+                    {
+                        string json = "{}";
+                        _assertToken = llGenerateKey();
+                        json = llJsonSetValue(json, ["token"], _assertToken);
+                        json = llJsonSetValue(json, ["test"], (string)_tests[_activeTest]);
+                        json = llJsonSetValue(json, ["task"], llJsonGetValue(_currentTaskData, ["name"]));
+
+                        integer i;
+                        integer len = llGetListLength(_receivedMessage);
+                        string msgJson;
+                        for(i = 0; i < len; i += 3)
+                        {
+                            msgJson = "{}";
+                            if((float)_receivedMessage[i + 2] > _timeToCheck)
+                            {
+                                if((integer)_receivedMessage[i + 1] == (integer)_currentActionParam2)
+                                {
+                                    msgJson = llJsonSetValue(msgJson, ["m"], (string)_receivedMessage[i]);                                
+                                    msgJson = llJsonSetValue(msgJson, ["t"], (string)_receivedMessage[i + 2]);
+
+                                    json = llJsonSetValue(json, ["msgs", JSON_APPEND], msgJson);
+                                }
+                            }
+                        }
+                        logInfo("Sending JSON message to PH script.");
+                        logVerbose("JSON: " + json);
+#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
+                        if(_assertSendType == ASSERT_SEND_METHOD_CHAT)
+#endif
+#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_CHAT || ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
+                        llRegionSayTo(llGetOwner(), TEST_CHANNEL, json);
+#endif
+#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
+                        if(_assertSendType == ASSERT_SEND_METHOD_LINK)
+#endif
+#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_LINK || ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
+                        llMessageLinked(LINK_THIS, 0, json, NULL_KEY);
+#endif
+                        _assertTime = llGetTime();
                     }
                 }
             }

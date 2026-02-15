@@ -15,40 +15,41 @@
       "items": {
         "type": "object",
         "description": "The object that descibes the test",
+        "uniqueItems": true,
         "patternProperties": {
           "^.*$": {
             "type": "object",
             "description": "The object that describes a test",
-            "required": ["a"],
+            "required": ["actions"],
             "properties": {
-              "d": {
+              "dependencies": {
                 "type": "array",
                 "items": { "type": "string" },
                 "description": "This array defines the list of tests by their name that this test is dependant on"
               },
-              "a": {
+              "actions": {
                 "type": "array",
                 "description": "The array that holds the individual tasks to perform as part of this test, this can either be a string that points to a Common Action or an object that defines the task",
                 "items": {
                   "type": ["string", "object"],
                   "description": "This object defines a task",
-                  "required": ["n", "a"],
+                  "required": ["name", "actionType"],
                   "properties": {
-                    "n": {
+                    "name": {
                       "type": "string",
                       "description": "The name of the task"
                     },
-                    "a": {
+                    "actionType": {
                       "type": "number",
                       "minimum": 0,
-                      "maximum": 5,
-                      "description": "Which task to perform: 0=SEND, 1=ASK, 2=REZ, 3=EXPECT, 4=RELAY, 5=ATTACH"
+                      "maximum": 6,
+                      "description": "Which task to perform: 0=SEND, 1=ASK, 2=REZ, 3=EXPECT, 4=RELAY, 5=ATTACH, 6=ASSERT"
                     },
-                    "p": {
+                    "parameters": {
                       "type": "array",
                       "description": "The parameters for this task",
                       "items": { "type": ["string", "number"] },
-                      "maxItems": 4
+                      "maxItems": 5
                     }
                   }
                 }
@@ -62,24 +63,25 @@
       "type": "array",
       "items": {
         "type": "object",
+        "uniqueItems": true,
         "patternProperties": {
           "^.*$": {
             "type": "object",
             "description": "This object defines a task",
-            "required": ["n", "a"],
+            "required": ["name", "actionType"],
             "properties": {
-              "n": { "type": "string", "description": "The name of the task" },
-              "a": {
+              "name": { "type": "string", "description": "The name of the task" },
+              "actionType": {
                 "type": "number",
                 "minimum": 0,
-                "maximum": 5,
-                "description": "Which task to perform: 0=SEND, 1=ASK, 2=REZ, 3=EXPECT, 4=RELAY, 5=ATTACH"
+                "maximum": 6,
+                "description": "Which task to perform: 0=SEND, 1=ASK, 2=REZ, 3=EXPECT, 4=RELAY, 5=ATTACH, 6=ASSERT"
               },
-              "p": {
+              "parameters": {
                 "type": "array",
                 "description": "The parameters for this task",
                 "items": { "type": ["string", "number"] },
-                "maxItems": 4
+                "maxItems": 5
               }
             }
           }
