@@ -1205,7 +1205,7 @@ state run_test
             {
                 if(_assertToken)
                 {
-                    if(llGetTime() > (_assertTime + (ASSERT_REPLY_TIMEOUT / 1000)))
+                    if(llGetTime() > (_assertTime + ((float)ASSERT_REPLY_TIMEOUT / 1000)))
                     {
                         _currentTaskFailureMessage = "Did not receive a reply in time from the PH script.";
                         _currentTaskState = TASKSTATE_FAILURE;
