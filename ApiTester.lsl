@@ -125,8 +125,8 @@
 // Example: assert 7321d897-ad5f-f98c-11ea-f5a56e2399ff ok
 //
 // - Parameters:
-//     - integer waitTime (in milliseconds)
 //     - integer channel
+//     - integer waitTime (in milliseconds)
 //     - integer type
 // - Types:
 //     - 0 (Beginning of test)
@@ -805,7 +805,8 @@ state run_test
         for(i = 0; i < llGetListLength(actions); i++)
         {
             string task = llList2String(actions, i);
-            if ((integer)llJsonGetValue(task, ["actionType"]) == ACTION_EXPECT)
+            integer taskType = (integer)llJsonGetValue(task, ["actionType"]);
+            if (taskType == ACTION_EXPECT || taskType == ACTION_ASSERT)
             {
                 list taskParams = llJson2List(llJsonGetValue(task, ["parameters"]));
                 string channel = getParameter((string)taskParams[0]);
@@ -1190,7 +1191,7 @@ state run_test
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                if(_assertTime == 0 && (integer)_currentActionParam1 != 0)
+                if(_assertTime == 0 && (integer)_currentActionParam2 != 0)
                     _assertTime = llGetTime();
 
                 if((integer)_currentActionParam3 == ASSERT_TYPE_SEND)
@@ -1213,7 +1214,7 @@ state run_test
                 }
                 else
                 {
-                    if(llGetTime() > (_assertTime + ((float)_currentActionParam1 / 1000)))
+                    if(llGetTime() > (_assertTime + ((float)_currentActionParam2 / 1000)))
                     {
                         string json = "{}";
                         _assertToken = llGenerateKey();
@@ -1229,7 +1230,7 @@ state run_test
                             msgJson = "{}";
                             if((float)_receivedMessage[i + 2] > _timeToCheck)
                             {
-                                if((integer)_receivedMessage[i + 1] == (integer)_currentActionParam2)
+                                if((integer)_receivedMessage[i + 1] == (integer)_currentActionParam1)
                                 {
                                     msgJson = llJsonSetValue(msgJson, ["m"], (string)_receivedMessage[i]);                                
                                     msgJson = llJsonSetValue(msgJson, ["t"], (string)_receivedMessage[i + 2]);
