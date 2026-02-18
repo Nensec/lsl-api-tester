@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>V's Tester | Test Builder</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body {
+            background-color: #121212;
+        }
+
+        .sidebar {
+            height: 100vh;
+            overflow-y: auto;
+            border-right: 1px solid #444;
+            background: #212529;
+        }
+
+        .main-content {
+            height: 100vh;
+            overflow-y: auto;
+            padding: 20px;
+        }
+
+        .action-card {
+            border-left: 4px solid #0d6efd;
+            margin-bottom: 10px;
+            background-color: #1f2d46;
+        }
+
+        .action-card.common-ref {
+            border-left-color: #198754;
+            background-color: #1e2b22;
+        }
+
+        .nested-actions {
+            margin-left: 20px;
+            border-left: 2px dashed #444;
+            padding-left: 10px;
+        }
+
+        .btn-xs {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+
+        const { useState, useEffect, useMemo } = React;
+
+        // -- CONSTANTS & DEFINITIONS
+
+        const ACTION_TYPES = {
+            0: { name: "SEND", params: ["target", "channel", "message"] },
+            1: { name: "ASK", params: ["message"] },
+            2: { name: "REZ", params: ["name", "distance"] },
+            3: { name: "EXPECT", params: ["channel", "value", "time", "type"] },
+            4: { name: "RELAY", params: ["relay", "channel", "value", "channelType"] },
+            5: { name: "ATTACH", params: ["name"] },
+            6: { name: "ASSERT", params: ["channel", "waitTime", "type"] }
+        };
+
+        const EXPECT_TYPES = ["(0) Beginning of test", "(1) Since last SEND", "(2) Since last RELAY"];
+        const RELAY_CHANNELS = ["(0) RegionSayTo", "(1) llSay", "(2) llWhisper", "(3) llShout"];
+
+        // Fields that should be numbers if possible, but strings if they are placeholders ($)
+        const NUMERIC_FIELDS = ["channel", "distance", "time", "waitTime"];
+
+        const INITIAL_JSON = {
+            name: "New Suite",
+            version: "v1.0",
+            tests: [],
+            commonActions: []
+        };
+
+        // -- HELPER COMPONENTS
+
+        // A smart input that handles the Number vs Placeholder string logic
+        const SmartInput = ({ value, onChange, placeholder, type = "text" }) => {
+            const [localValue, setLocalValue] = useState(value);
+
+            useEffect(() => { setLocalValue(value); }, [value]);
+
+            const handleBlur = () => {
+                if (localValue === "" || localValue === null) {
+                    onChange(localValue);
+                    return;
+                }
+                // If it looks like a number, save as number. Otherwise string.
+                const asNum = Number(localValue);
+                if (!isNaN(asNum) && localValue.toString().trim() !== "") {
+                    onChange(asNum);
+                } else {
+                    onChange(localValue);
+                }
+            };
+
+            return (
+                <input
+                    type={type}
+                    className="form-control form-control"
+                    value={localValue || ""}
+                    onChange={(e) => setLocalValue(e.target.value)}
+                    onBlur={handleBlur}
+                    placeholder={placeholder}
+                />
+            );
+        };
+
+        // -- MAIN APP COMPONENT
+
+        function App() {
+            const [data, setData] = useState(INITIAL_JSON);
+            const [view, setView] = useState("dashboard"); // dashboard, test, common
+            const [selectedId, setSelectedId] = useState(null); // The Key of the selected item
+
+            // -- DATA ACCESSORS
+            // The schema uses [{ "Key": { val } }], which is annoying to map. We convert to array of objects with keys for UI.
+
+            const getTests = () => data.tests.map(t => {
+                const key = Object.keys(t)[0];
+                return { key, ...t[key] };
+            });
+
+            const getCommonActions = () => data.commonActions.map(c => {
+                const key = Object.keys(c)[0];
+                return { key, ...c[key] };
+            });
+
+            // -- MANIPULATORS
+
+            const handleFileUpload = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const json = JSON.parse(event.target.result);
+                        // Force clean state override
+                        setData({
+                            name: json.name || "Untitled",
+                            version: json.version || "1.0.0",
+                            tests: json.tests || [],
+                            commonActions: json.commonActions || []
+                        });
+                        setView("dashboard");
+                        setSelectedId(null);
+                    } catch (err) {
+                        alert("Error parsing JSON file.");
+                    }
+                };
+                reader.readAsText(file);
+                e.target.value = null; // Reset input so same file can be uploaded again
+            };
+
+            const downloadJson = () => {
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `${data.name.replace(/\s+/g, '_')}_v${data.version}.txt`;
+                a.click();
+            };
+
+            const clearAll = () => {
+                if (confirm("Clear everything? Unsaved changes will be lost, make sure you download your JSON first!")) {
+                    setData(INITIAL_JSON);
+                    setView("dashboard");
+                }
+            };
+
+            const addTest = () => {
+                const name = prompt("Enter Test Name:");
+                if (!name) return;
+                if (getTests().find(t => t.key === name)) return alert("Name already exists");
+
+                const newTest = { [name]: { dependencies: [], actions: [] } };
+                setData(prev => ({ ...prev, tests: [...prev.tests, newTest] }));
+                setSelectedId(name);
+                setView("test");
+            };
+
+            const addCommonAction = () => {
+                const name = prompt("Enter Common Action Name (ID):");
+                if (!name) return;
+                if (getCommonActions().find(c => c.key === name)) return alert("Name already exists");
+
+                // Default Action Structure
+                const newAction = { [name]: { name: "New Action", actionType: 0, parameters: [] } };
+                setData(prev => ({ ...prev, commonActions: [...prev.commonActions, newAction] }));
+                setSelectedId(name);
+                setView("common");
+            };
+
+            const deleteTest = (key) => {
+                // Check dependencies
+                const dependants = getTests().filter(t => t.dependencies && t.dependencies.includes(key));
+                if (dependants.length > 0) {
+                    const names = dependants.map(t => t.key).join(", ");
+                    if (!confirm(`Warning: The following tests depend on this test:\n${names}\n\nDeleting this will remove the dependency from them. Continue?`)) {
+                        return;
+                    }
+                    // Clean up dependencies in other tests
+                    const cleanedTests = data.tests.filter(t => Object.keys(t)[0] !== key).map(t => {
+                        const k = Object.keys(t)[0];
+                        const obj = t[k];
+                        if (obj.dependencies.includes(key)) {
+                            return { [k]: { ...obj, dependencies: obj.dependencies.filter(d => d !== key) } };
+                        }
+                        return t;
+                    });
+                    setData({ ...data, tests: cleanedTests });
+                } else {
+                    if (!confirm("Are you sure you want to delete this test?")) return;
+                    setData({ ...data, tests: data.tests.filter(t => Object.keys(t)[0] !== key) });
+                }
+                setView("dashboard");
+            };
+
+            const deleteCommonAction = (key) => {
+                if (!confirm("Are you sure? This might break tests referencing this action.")) return;
+                setData({ ...data, commonActions: data.commonActions.filter(c => Object.keys(c)[0] !== key) });
+                setView("dashboard");
+            };
+
+            const renameKey = (oldKey, newKey, type) => {
+                if (oldKey === newKey) return;
+
+                if (type === "test") {
+                    // Check exist
+                    if (getTests().find(t => t.key === newKey)) return alert("Name exists");
+
+                    // Update Key
+                    const newTests = data.tests.map(t => {
+                        const k = Object.keys(t)[0];
+                        if (k === oldKey) return { [newKey]: t[k] };
+
+                        // Update dependencies in other tests
+                        if (t[k].dependencies.includes(oldKey)) {
+                            const newDeps = t[k].dependencies.map(d => d === oldKey ? newKey : d);
+                            return { [k]: { ...t[k], dependencies: newDeps } };
+                        }
+                        return t;
+                    });
+                    setData({ ...data, tests: newTests });
+                    setSelectedId(newKey);
+                } else {
+                    // Common Action Rename
+                    if (getCommonActions().find(c => c.key === newKey)) return alert("Name exists");
+
+                    // Update Definition
+                    const newCA = data.commonActions.map(c => {
+                        const k = Object.keys(c)[0];
+                        return k === oldKey ? { [newKey]: c[k] } : c;
+                    });
+
+                    // Update References in ALL Tests
+                    const newTests = data.tests.map(t => {
+                        const k = Object.keys(t)[0];
+                        const newActions = t[k].actions.map(a => (typeof a === 'string' && a === oldKey) ? newKey : a);
+                        return { [k]: { ...t[k], actions: newActions } };
+                    });
+
+                    setData({ ...data, commonActions: newCA, tests: newTests });
+                    setSelectedId(newKey);
+                }
+            };
+
+            // -- RENDERERS
+
+            return (
+                <div className="container-fluid">
+                    <div className="row">
+                        {/* SIDEBAR */}
+                        <div className="col-md-3 sidebar p-3">
+                            <h4 className="mb-3">V's Tester | Test Builder</h4>
+                            <p>Note: Because I quite frankly suck at front-end development, this GUI has been created largely using Google Gemini. Whilst I understand largely what it does, I am not a react developer or do much in javascript. Bugs can happen, though it all <i>seems</i> to work..?</p>
+                            <p>Maybe one day I will re-build it from scratch without LLM handholding, but this allows me to focus on actually working on other projects rather than getting stuck on a GUI 😔</p>
+                            <div className="row">
+                                <div className="col-8">
+                                    <label className="form-label fw-bold">Suite Name</label>
+                                    <input className="form-control" value={data.name} onChange={e => setData({ ...data, name: e.target.value })} />
+                                </div>
+                                <div className="col-4">
+                                    <label className="form-label fw-bold">Version</label>
+                                    <input className="form-control" value={data.version} onChange={e => setData({ ...data, version: e.target.value })} />
+                                </div>
+                            </div>
+
+                            <hr />
+
+                            <div className="border rounded-2 p-3 mb-3">
+                                <div className="d-flex justify-content-between align-items-center mb-2">
+                                    <h5 className="m-0">Tests</h5>
+                                    <button className="btn btn-sm btn-primary" onClick={addTest}>+</button>
+                                </div>
+                                <div className="list-group">
+                                    {getTests().map(t => (
+                                        <button key={t.key}
+                                            className={`list-group-item list-group-item-action ${view === 'test' && selectedId === t.key ? 'active' : ''}`}
+                                            onClick={() => { setView('test'); setSelectedId(t.key); }}
+                                        >
+                                            {t.key}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="border rounded-2 p-3">
+                                <div className="d-flex justify-content-between align-items-center mb-2">
+                                    <h5 className="m-0">Common Actions</h5>
+                                    <button className="btn btn-sm btn-success" onClick={addCommonAction}>+</button>
+                                </div>
+                                <div className="list-group">
+                                    {getCommonActions().map(c => (
+                                        <button key={c.key}
+                                            className={`list-group-item list-group-item-action ${view === 'common' && selectedId === c.key ? 'active' : ''}`}
+                                            onClick={() => { setView('common'); setSelectedId(c.key); }}
+                                        >
+                                            {c.key}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <hr />
+                            <div className="d-grid">
+                                <label className="btn btn-secondary btn-sm my-2">
+                                    Upload JSON <input type="file" hidden accept=".json,.txt" onChange={handleFileUpload} />
+                                </label>
+                                <button className="btn btn-primary btn-sm my-2" onClick={downloadJson}>Download JSON</button>
+                                <button className="btn btn-danger btn-sm my-2" onClick={clearAll}>Clear All</button>
+                            </div>
+                        </div>
+
+                        {/* MAIN CONTENT */}
+                        <div className="col-md-9 main-content">
+                            {view === 'dashboard' && (
+                                <div className="alert alert-info">Select a Test or Common Action to edit.</div>
+                            )}
+
+                            {view === 'test' && selectedId && (
+                                <TestEditor
+                                    testKey={selectedId}
+                                    data={data}
+                                    setData={setData}
+                                    onRename={(newKey) => renameKey(selectedId, newKey, 'test')}
+                                    onDelete={() => deleteTest(selectedId)}
+                                />
+                            )}
+
+                            {view === 'common' && selectedId && (
+                                <CommonActionWrapper
+                                    actionKey={selectedId}
+                                    data={data}
+                                    setData={setData}
+                                    onRename={(newKey) => renameKey(selectedId, newKey, 'common')}
+                                    onDelete={() => deleteCommonAction(selectedId)}
+                                />
+                            )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // -- TEST EDITOR
+
+        function TestEditor({ testKey, data, setData, onRename, onDelete }) {
+            // Extract current test data
+            const testObj = data.tests.find(t => Object.keys(t)[0] === testKey)[testKey];
+            const allTestKeys = data.tests.map(t => Object.keys(t)[0]);
+            const commonActionKeys = data.commonActions.map(c => Object.keys(c)[0]);
+
+            const updateTest = (newData) => {
+                const newTests = data.tests.map(t => {
+                    const k = Object.keys(t)[0];
+                    return k === testKey ? { [k]: newData } : t;
+                });
+                setData({ ...data, tests: newTests });
+            };
+
+            const toggleDependency = (depKey) => {
+                const currentDeps = testObj.dependencies || [];
+                if (currentDeps.includes(depKey)) {
+                    updateTest({ ...testObj, dependencies: currentDeps.filter(d => d !== depKey) });
+                } else {
+                    updateTest({ ...testObj, dependencies: [...currentDeps, depKey] });
+                }
+            };
+
+            const addAction = (type) => { // type = 'custom' or 'common'
+                let newAction;
+                if (type === 'custom') {
+                    newAction = { name: "New Action", actionType: 0, parameters: [] };
+                } else {
+                    if (commonActionKeys.length === 0) return alert("No common actions defined");
+                    newAction = commonActionKeys[0]; // Default to first
+                }
+                updateTest({ ...testObj, actions: [...(testObj.actions || []), newAction] });
+            };
+
+            const updateAction = (index, newVal) => {
+                const newActions = [...testObj.actions];
+                newActions[index] = newVal;
+                updateTest({ ...testObj, actions: newActions });
+            };
+
+            const removeAction = (index) => {
+                const newActions = testObj.actions.filter((_, i) => i !== index);
+                updateTest({ ...testObj, actions: newActions });
+            };
+
+            const moveAction = (index, dir) => {
+                const newActions = [...testObj.actions];
+                if (dir === -1 && index > 0) {
+                    [newActions[index], newActions[index - 1]] = [newActions[index - 1], newActions[index]];
+                } else if (dir === 1 && index < newActions.length - 1) {
+                    [newActions[index], newActions[index + 1]] = [newActions[index + 1], newActions[index]];
+                }
+                updateTest({ ...testObj, actions: newActions });
+            };
+
+            return (
+                <div>
+                    <div className="d-flex justify-content-between border-bottom pb-3 mb-3">
+                        <div className="d-flex gap-2 align-items-center">
+                            <h3 className="m-0">Test:</h3>
+                            <input className="form-control" value={testKey}
+                                onBlur={(e) => onRename(e.target.value)}
+                                onChange={() => { }} // Controlled by blur for rename logic
+                            />
+                        </div>
+                        <button className="btn btn-danger" onClick={onDelete}>Delete Test</button>
+                    </div>
+
+                    <div className="row mb-4">
+                        <div className="col-12">
+                            <label className="fw-bold">Dependencies</label>
+                            <div className="card p-2 mt-2" style={{ maxHeight: '150px', overflowY: 'auto' }}>
+                                {allTestKeys.filter(k => k !== testKey).map(k => (
+                                    <div key={k} className="form-check">
+                                        <input className="form-check-input" type="checkbox"
+                                            checked={testObj.dependencies.includes(k)}
+                                            onChange={() => toggleDependency(k)}
+                                        />
+                                        <label className="form-check-label">{k}</label>
+                                    </div>
+                                ))}
+                                {allTestKeys.length <= 1 && <em className="text-muted">No other tests available</em>}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="mb-3 d-flex justify-content-between align-items-center">
+                        <h4>Actions Sequence</h4>
+                        <div className="btn-group">
+                            <button className="btn btn-primary btn-sm" onClick={() => addAction('custom')}>+ Custom Action</button>
+                            <button className="btn btn-success btn-sm" onClick={() => addAction('common')}>+ Common Action</button>
+                        </div>
+                    </div>
+
+                    <div>
+                        {testObj.actions && testObj.actions.map((action, idx) => (
+                            <div key={idx} className="d-flex gap-2 align-items-start mb-2">
+                                <div className="d-flex flex-column gap-1 pt-2">
+                                    <button className="btn btn-xs btn-light border" onClick={() => moveAction(idx, -1)}>▲</button>
+                                    <button className="btn btn-xs btn-light border" onClick={() => moveAction(idx, 1)}>▼</button>
+                                </div>
+
+                                <div className="flex-grow-1">
+                                    {typeof action === 'string' ? (
+                                        <div className="card action-card common-ref p-3">
+                                            <div className="d-flex justify-content-between align-items-center">
+                                                <div>
+                                                    <strong>Common Action Reference:</strong>
+                                                    <select className="form-select d-inline-block w-auto ms-2"
+                                                        value={action}
+                                                        onChange={(e) => updateAction(idx, e.target.value)}
+                                                    >
+                                                        {commonActionKeys.map(k => <option key={k} value={k}>{k}</option>)}
+                                                    </select>
+                                                </div>
+                                                <button className="btn btn-danger" onClick={() => removeAction(idx)}>Remove</button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <ActionEditor
+                                            action={action}
+                                            onChange={(newVal) => updateAction(idx, newVal)}
+                                            onRemove={() => removeAction(idx)}
+                                        />
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                        {(!testObj.actions || testObj.actions.length === 0) && <p className="text-muted text-center">No actions added yet.</p>}
+                    </div>
+                </div>
+            );
+        }
+
+        // -- COMMON ACTION EDITOR WRAPPER
+        // Wraps the inner ActionEditor to handle the top-level object structure of Common Actions
+
+        function CommonActionWrapper({ actionKey, data, setData, onRename, onDelete }) {
+            const actionObj = data.commonActions.find(c => Object.keys(c)[0] === actionKey)[actionKey];
+
+            const handleChange = (newVal) => {
+                const newArr = data.commonActions.map(c => {
+                    const k = Object.keys(c)[0];
+                    return k === actionKey ? { [k]: newVal } : c;
+                });
+                setData({ ...data, commonActions: newArr });
+            };
+
+            return (
+                <div>
+                    <div className="d-flex justify-content-between border-bottom pb-3 mb-3">
+                        <div className="d-flex gap-2 align-items-center">
+                            <h3 className="m-0 text-nowrap">Common Action:</h3>
+                            <input className="form-control" value={actionKey}
+                                onBlur={(e) => onRename(e.target.value)}
+                                onChange={() => { }}
+                            />
+                        </div>
+                        <button className="btn btn-danger" onClick={onDelete}>Delete</button>
+                    </div>
+                    <ActionEditor action={actionObj} onChange={handleChange} isCommonRef={true} />
+                </div>
+            );
+        }
+
+        // -- GENERIC ACTION EDITOR
+        // Renders inputs based on Action Type (0-6)
+
+        function ActionEditor({ action, onChange, onRemove, isCommonRef = false }) {
+
+            const typeDef = ACTION_TYPES[action.actionType] || ACTION_TYPES[0];
+
+            const updateField = (field, val) => {
+                // If changing type, reset params to match the count
+                if (field === 'actionType') {
+                    val = parseInt(val);
+                    const newTypeDef = ACTION_TYPES[val];
+                    // Resize parameters array, preserving what fits, filling empty strings
+                    const newParams = Array(newTypeDef.params.length).fill("");
+                    onChange({ ...action, actionType: val, parameters: newParams });
+                } else if (field === 'name') {
+                    onChange({ ...action, name: val });
+                }
+            };
+
+            const updateParam = (idx, val) => {
+                const newParams = [...action.parameters];
+                newParams[idx] = val;
+                onChange({ ...action, parameters: newParams });
+            };
+
+            const renderParamInput = (paramName, idx) => {
+                // Logic for specific parameter names
+
+                // "type" parameter (EXPECT/ASSERT)
+                if (paramName === "type") {
+                    return (
+                        <select className="form-select" value={action.parameters[idx]} onChange={e => updateParam(idx, parseInt(e.target.value))}>
+                            {EXPECT_TYPES.map((t, i) => <option key={i} value={i}>{t}</option>)}
+                        </select>
+                    );
+                }
+
+                // "channelType" parameter (RELAY)
+                if (paramName === "channelType") {
+                    return (
+                        <select className="form-select" value={action.parameters[idx]} onChange={e => updateParam(idx, parseInt(e.target.value))}>
+                            {RELAY_CHANNELS.map((t, i) => <option key={i} value={i}>{t}</option>)}
+                        </select>
+                    );
+                }
+
+                // Numeric fields that allow String Placeholders ($)
+                if (NUMERIC_FIELDS.includes(paramName)) {
+                    return <SmartInput value={action.parameters[idx]} onChange={val => updateParam(idx, val)} placeholder={paramName} />;
+                }
+
+                // Standard Text
+                return <input type="text" className="form-control" value={action.parameters[idx]} onChange={e => updateParam(idx, e.target.value)} placeholder={paramName} />;
+            };
+
+            return (
+                <div className={`card action-card p-3 ${isCommonRef ? 'common-ref' : ''}`}>
+                    <div className="row g-2 mb-2">
+                        <div className="col-md-4">
+                            <label className="form-label small text-muted">Action Name</label>
+                            <input type="text" className="form-control" value={action.name} onChange={e => updateField('name', e.target.value)} />
+                        </div>
+                        <div className="col-md-4">
+                            <label className="form-label small text-muted">Type</label>
+                            <select className="form-select" value={action.actionType} onChange={e => updateField('actionType', e.target.value)}>
+                                {Object.entries(ACTION_TYPES).map(([k, v]) => (
+                                    <option key={k} value={k}>{k} - {v.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        {!isCommonRef && (
+                            <div className="col-md-4 text-end">
+                                <label className="form-label small text-muted d-block">&nbsp;</label>
+                                <button className="btn btn-danger" onClick={onRemove}>Remove</button>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="row bg-dark p-2 pb-3 m-0 rounded border">
+                        {typeDef.params.map((p, i) => (
+                            <div className="col-md-3" key={i}>
+                                <label className="form-label small fw-bold text-uppercase">{p}</label>
+                                {renderParamInput(p, i)}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+
+    </script>
+</body>
+
+</html>
