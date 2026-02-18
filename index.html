@@ -92,7 +92,7 @@
             0: { name: "SEND", params: [{ name: "target", description: "The target UUID to send the message to. If using a placeholder must resolve to a UUID." }, { name: "channel", description: "The channel to send the message on. If using a placeholder must resolve to a integer." }, { name: "message", description: "The message to send. You can use multiple placeholders to format your message." }] },
             1: { name: "ASK", params: [{ name: "message", description: "The question to ask the user. You can use multiple placeholders to format your question." }] },
             2: { name: "REZ", params: [{ name: "name", description: "The name to give the rezzed dummy. Can use multiple placeholders if you so wish." }, { name: "distance", description: "How far should the dummy be rezzed from you. Note: there is a 10m max range imposed by SL." }] },
-            3: { name: "EXPECT", params: [{ name: "channel", description: "What channel should be monitored. If using a placeholder must resolve to a integer." }, { name: "value", description: "What message are we looking for? You can use an * to denote a wildcard, comparisons will only be done up to that point. Can use multiple placeholders." }, { name: "time", description: "What is the maximum time to wait for in milliseconds for the message to arrive? If using a placeholder must resolve to an integer." }, { name: "type", description: "From when should we actually check messages?" }] },
+            3: { name: "EXPECT", params: [{ name: "channel", description: "What channel should be monitored. If using a placeholder must resolve to a integer." }, { name: "value", description: "What message are we looking for? You can use an * to denote a wildcard, comparisons will only be done up to that point. Can use multiple placeholders." }, { name: "time", description: "What is the maximum time to wait for in milliseconds for the message to arrive? If using a placeholder must resolve to an integer." }, { name: "type", description: "From when should we actually check messages?" }, { name: "invert", description: "Inverts the logic, checking if a message is not received." }] },
             4: { name: "RELAY", params: [{ name: "relay", description: "The target relay to send this request too. You will likely always want to use the placeholder name that was created as part of REZ or ATTACH." }, { name: "channel", description: "On what channel should the relay send a message? If using a placeholder must resolve to a integer." }, { name: "message", description: "What is the message to send? You can use multiple placeholders to format your message." }, { name: "channelType", description: "What kind of communication should the relay use?" }] },
             5: { name: "ATTACH", params: [{ name: "name", description: "The name to give the rezzed dummy. Can use multiple placeholders if you so wish." }] },
             6: { name: "ASSERT", params: [{ name: "channel", description: "What channel should be monitored. If using a placeholder must resolve to a integer." }, { name: "waitTime", description: "How long should we collect messages for before sending this off to the PH script?" }, { name: "type", description: "From when should we actually check messages?" }] }
@@ -102,6 +102,7 @@
 
         const EXPECT_TYPES = ["0 - Beginning of test", "1 - Since last SEND", "2 - Since last RELAY"];
         const RELAY_CHANNELS = ["0 - RegionSayTo", "1 - llSay", "2 - llWhisper", "3 - llShout"];
+        const BOOLEAN_TYPES = ["0 - False", "1 - True"];
 
         // Fields that should be numbers if possible, but strings if they are placeholders ($)
         const NUMERIC_FIELDS = ["channel", "distance", "time", "waitTime"];
@@ -649,7 +650,12 @@
                     val = parseInt(val);
                     const newTypeDef = ACTION_TYPES[val];
                     // Resize parameters array, preserving what fits, filling empty strings
-                    const newParams = Array(newTypeDef.params.length).fill("");
+                    const newParams = newTypeDef.params.map(p => {
+                        if (p.name === "type" || p.name === "channelType" || p.name == "invert") {
+                            return 0;
+                        }
+                        return "";
+                    });
                     onChange({ ...action, actionType: val, parameters: newParams });
                 } else if (field === 'name') {
                     onChange({ ...action, name: val });
@@ -668,7 +674,7 @@
                 // "type" parameter (EXPECT/ASSERT)
                 if (paramName === "type") {
                     return (
-                        <select className="form-select" value={action.parameters[idx]} onChange={e => updateParam(idx, parseInt(e.target.value))}>
+                        <select className="form-select" value={(action.parameters[idx] === "" || action.parameters[idx] === undefined) ? 0 : action.parameters[idx]} onChange={e => updateParam(idx, parseInt(e.target.value))}>
                             {EXPECT_TYPES.map((t, i) => <option key={i} value={i}>{t}</option>)}
                         </select>
                     );
@@ -677,8 +683,17 @@
                 // "channelType" parameter (RELAY)
                 if (paramName === "channelType") {
                     return (
-                        <select className="form-select" value={action.parameters[idx]} onChange={e => updateParam(idx, parseInt(e.target.value))}>
+                        <select className="form-select" value={(action.parameters[idx] === "" || action.parameters[idx] === undefined) ? 0 : action.parameters[idx]} onChange={e => updateParam(idx, parseInt(e.target.value))}>
                             {RELAY_CHANNELS.map((t, i) => <option key={i} value={i}>{t}</option>)}
+                        </select>
+                    );
+                }
+
+                // "invert" parameter (EXPECT)
+                if (paramName === "invert") {
+                    return (
+                        <select className="form-select" value={(action.parameters[idx] === "" || action.parameters[idx] === undefined) ? 0 : action.parameters[idx]} onChange={e => updateParam(idx, parseInt(e.target.value))}>
+                            {BOOLEAN_TYPES.map((t, i) => <option key={i} value={i}>{t}</option>)}
                         </select>
                     );
                 }
@@ -717,7 +732,7 @@
                         <div className="col-12">
                             <div className="row">
                                 {typeDef.params.map((p, i) => (
-                                    <div className="col-md-3" key={i}>
+                                    <div className="col" key={i}>
                                         <label className="form-label small fw-bold text-uppercase">{p.name} <span className="ms-1 infoBubble" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title={p.description} style={{ cursor: 'help' }}>ℹ️</span></label>
                                         {renderParamInput(p.name, i)}
                                     </div>
