@@ -99,7 +99,7 @@ Instructs a given Relay object to relay a message.
 - Parameters:
     - **key** relay
     - **integer** channel
-    - **string** value
+    - **string** message
     - **integer** channelType
 - Types:
     - 0: RegionSayTo *(target = llGetOwner)*
@@ -114,7 +114,7 @@ Attaches a Relay object. It's name gets added to LSD as a placeholder with the v
     - **string** name
 
 ### ASSERT (6)
-Sends a message that is meant to be recived by the `<testsuite>_PH.lsl` script. It can then do any kind of custom parsing and comparison it wants.
+Sends a message that is meant to be received by the `<testsuite>_PH.lsl` script. It can then do any kind of custom parsing and comparison it wants.
 By default this is send via llRegionSayTo to the owner of the tester object on channel TEST_CHANNEL. However if you notice that size of the JSON is an issue for you due to the volume of messages
 you can configure the tester to instead send it via llMessageLinked instead.
 
