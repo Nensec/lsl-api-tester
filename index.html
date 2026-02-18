@@ -60,8 +60,7 @@
             transition: opacity 0.2s;
         }
 
-        .infoBubble.infoBubbleLarge
-        {
+        .infoBubble.infoBubbleLarge {
             font-size: 1.2rem;
         }
 
@@ -465,6 +464,11 @@
             const testObj = data.tests.find(t => Object.keys(t)[0] === testKey)[testKey];
             const allTestKeys = data.tests.map(t => Object.keys(t)[0]);
             const commonActionKeys = data.commonActions.map(c => Object.keys(c)[0]);
+            const [localName, setLocalName] = useState(testKey);
+
+            useEffect(() => {
+                setLocalName(testKey);
+            }, [testKey]);
 
             const updateTest = (newData) => {
                 const newTests = data.tests.map(t => {
@@ -520,9 +524,10 @@
                     <div className="d-flex justify-content-between border-bottom pb-3 mb-3">
                         <div className="d-flex gap-2 align-items-center">
                             <h3 className="m-0">Test:</h3>
-                            <input className="form-control" value={testKey}
+                            <input className="form-control"
+                                value={localName}
+                                onChange={(e) => setLocalName(e.target.value)} // Updates the box as you type
                                 onBlur={(e) => onRename(e.target.value)}
-                                onChange={() => { }} // Controlled by blur for rename logic
                             />
                         </div>
                         <button className="btn btn-danger" onClick={onDelete}>Delete Test</button>
@@ -599,6 +604,11 @@
 
         function CommonActionWrapper({ actionKey, data, setData, onRename, onDelete }) {
             const actionObj = data.commonActions.find(c => Object.keys(c)[0] === actionKey)[actionKey];
+            const [localName, setLocalName] = useState(actionKey);
+
+            useEffect(() => {
+                setLocalName(actionKey);
+            }, [actionKey]);
 
             const handleChange = (newVal) => {
                 const newArr = data.commonActions.map(c => {
@@ -613,9 +623,10 @@
                     <div className="d-flex justify-content-between border-bottom pb-3 mb-3">
                         <div className="d-flex gap-2 align-items-center">
                             <h3 className="m-0 text-nowrap">Common Action:</h3>
-                            <input className="form-control" value={actionKey}
+                            <input className="form-control"
+                                value={localName}
+                                onChange={(e) => setLocalName(e.target.value)}
                                 onBlur={(e) => onRename(e.target.value)}
-                                onChange={() => { }}
                             />
                         </div>
                         <button className="btn btn-danger" onClick={onDelete}>Delete</button>
