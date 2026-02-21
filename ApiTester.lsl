@@ -259,7 +259,9 @@
 
 #define DEFAULT_PLACEHOLDERS \
         llLinksetDataWrite("AV", llGetOwner()); \
-        llLinksetDataWrite("TESTCHANNEL", (string)TEST_CHANNEL);
+        llLinksetDataWrite("TESTCHANNEL", (string)TEST_CHANNEL); \
+        llLinksetDataWrite("THIS", llGetKey()); \
+        llLinksetDataWrite("NULL", NULL_KEY);
 
 #define COMMON_ACTIONS \
         llLinksetDataWrite("C_REZ_DUMMY", DEFER_STR({"name":"Rez dummy","actionType":ACTION_REZ,"parameters":["DUMMY",2.5]})); \

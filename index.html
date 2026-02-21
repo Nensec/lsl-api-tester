@@ -99,6 +99,7 @@
         };
 
         const TYPE_HELP = "<ul><li><b>SEND</b>: Send a message on a channel to kick off the test</li><li><b>ASK</b>: Ask a Yes/No question, if answered with No then the test is marked as failed.</li><li><b>REZ</b>: Rezzes a Relay object. It's name gets added to LSD as a placeholder with the value being its UUID.</li><li><b>EXPECT</b>: Assert a certain value is returned since beginning of test, SEND or RELAY. If a * is added any remaining string after the * is ignored.</li><li><b>RELAY</b>: Instructs a given Relay object to relay a message.</li><li><b>ATTACH</b>: Attaches a Relay object. It's name gets added to LSD as a placeholder with the value being its UUID.</li><li><b>ASSERT</b>: Sends a message that is meant to be received by the testsuite_PH.lsl script. It can then do any kind of custom parsing and comparison it wants.</li></ul>";
+        const ACTION_HELP = "Almost all parameters support placeholders. You define those yourself with the testsuite_PH.lsl script, or they are added via some actions. In all cases you can refer to a placeholder using the '$' token, for example: $AV. Four placeholders are added by default:<ul><li><b>AV</b>: Holds the owner avatar's UUID</li><li><b>TESTCHANNEL</b>: Holds the integer for the test channel</li><li><b>THIS</b>: Holds the UUID of the tester</li><li><b>NULL</b>: Holds the UUID that is NULL_KEY</li></ul>";
 
         const EXPECT_TYPES = ["0 - Beginning of test", "1 - Since last SEND", "2 - Since last RELAY"];
         const RELAY_CHANNELS = ["0 - RegionSayTo", "1 - llSay", "2 - llWhisper", "3 - llShout"];
@@ -725,7 +726,7 @@
                             </select>
                         </div>
                         <div className="align-items-center col-md-4 d-flex justify-content-end">
-                            <p><span className="px-2 infoBubble infoBubbleLarge" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Almost all parameters support placeholders. You define those yourself with the testsuite_PH.lsl script, or they are added via some actions. Two placeholders are added by default, 'AV' which holds the owner avatar's UUID and 'TESTCHANNEL' which holds the integer for the test channel. In all cases you can refer to a placeholder using the '$' token, for example: $AV." style={{ cursor: 'help' }}>ℹ️</span></p>
+                            <p><span className="px-2 infoBubble infoBubbleLarge" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title={ACTION_HELP} data-bs-html="true" style={{ cursor: 'help' }}>ℹ️</span></p>
                             {!isCommonRef && (
                                 <button className="btn btn-danger" onClick={onRemove}>Remove</button>
                             )}
