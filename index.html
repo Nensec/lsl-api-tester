@@ -104,6 +104,8 @@
         const RELAY_CHANNELS = ["0 - RegionSayTo", "1 - llSay", "2 - llWhisper", "3 - llShout"];
         const BOOLEAN_TYPES = ["0 - False", "1 - True"];
 
+        const DEFAULT_COMMONACTIONS = [{ "REZ_DUMMY": {"name":"Rez dummy","actionType":2,"parameters":["DUMMY",2.5]} },{ "ATTACH_DUMMY": {"name":"Attach dummy","actionType":5,"parameters":["ATTACH"]}}];
+
         // Fields that should be numbers if possible, but strings if they are placeholders ($)
         const NUMERIC_FIELDS = ["channel", "distance", "time", "waitTime"];
 
@@ -201,7 +203,7 @@
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement("a");
                 a.href = url;
-                a.download = `${data.name.replace(/\s+/g, '_')}_v${data.version}.txt`;
+                a.download = `${data.name.replace(/\s+/g, '_')}_${data.version}.txt`;
                 a.click();
             };
 
@@ -464,7 +466,7 @@
             // Extract current test data
             const testObj = data.tests.find(t => Object.keys(t)[0] === testKey)[testKey];
             const allTestKeys = data.tests.map(t => Object.keys(t)[0]);
-            const commonActionKeys = data.commonActions.map(c => Object.keys(c)[0]);
+            const commonActionKeys = Array.prototype.concat(DEFAULT_COMMONACTIONS, data.commonActions).map(c => Object.keys(c)[0]);
             const [localName, setLocalName] = useState(testKey);
 
             useEffect(() => {
