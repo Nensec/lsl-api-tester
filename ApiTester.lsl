@@ -335,13 +335,16 @@ string getParameter(string param)
             result += llGetSubString(param, 0, i - 1);
         param = llGetSubString(param, i + 1, -1);
 
-        integer space = llSubStringIndex(param, " ");
+        integer placeholderEnd = llSubStringIndex(param, " ");
+        integer wildcardIndex = llSubStringIndex(param, "*");
+        if(~wildcardIndex && (placeholderEnd > wildcardIndex || placeholderEnd == -1))
+            placeholderEnd = wildcardIndex;
         string placeholder;
         
-        if(~space)
+        if(~placeholderEnd)
         {
-            placeholder = llGetSubString(param, 0, space - 1);
-            param = llGetSubString(param, space, -1);
+            placeholder = llGetSubString(param, 0, placeholderEnd - 1);
+            param = llGetSubString(param, placeholderEnd, -1);
         }
         else
         {
@@ -473,8 +476,7 @@ commandHandler(string message)
     else if(cmd == DEFER_STR(COMMAND_LOAD) && (string)parts[1] != "") // Loads a specific test suite, it's name must match that of the notecard originally read
     {
         string name = llDumpList2String(llList2List(parts, 1, -1), " ");
-        string json = llLinksetDataRead("NC_" + name);
-        if(llJsonValueType(json, []) != JSON_OBJECT)
+        if(llJsonValueType(llLinksetDataRead("NC_" + name), []) != JSON_OBJECT)
             log("There is no suite called \"" + name + "\". " + DEFER_STR(View available suites using DEFER_STR(/COMMAND_CHANNEL COMMAND_SUITES)));
         else
         {
@@ -486,12 +488,12 @@ commandHandler(string message)
             logVerbose("Loading common actions into LSD..");
             COMMON_ACTIONS
 
-            log("Loading test suite \"" + llJsonGetValue(json, ["name"]) + "\"");
+            log("Loading test suite \"" + llJsonGetValue(llLinksetDataRead("NC_" + name), ["name"]) + "\"");
             _tests = [];
             killOtherScripts();
             integer i;
             integer len;
-            list jsonList = llJson2List(llJsonGetValue(json, ["commonActions"]));
+            list jsonList = llJson2List(llJsonGetValue(llLinksetDataRead("NC_" + name), ["commonActions"]));
             list jsonItem;
             len = llGetListLength(jsonList);
             for(i = 0; i < len; i++)
@@ -499,7 +501,7 @@ commandHandler(string message)
                 jsonItem = llJson2List((string)jsonList[i]);
                 llLinksetDataWrite("C_" + (string)jsonItem[0], (string)jsonItem[1]);
             }
-            jsonList = llJson2List(llJsonGetValue(json, ["tests"]));
+            jsonList = llJson2List(llJsonGetValue(llLinksetDataRead("NC_" + name), ["tests"]));
             len = llGetListLength(jsonList);
             for(i = 0; i < len; i++)
             {
@@ -507,14 +509,14 @@ commandHandler(string message)
                 llLinksetDataWrite("T_" + (string)jsonItem[0], (string)jsonItem[1]);
                 _tests += [(string)jsonItem[0]];
             }
-            _currentSuite = llJsonGetValue(json, ["name"]);
+            _currentSuite = llJsonGetValue(llLinksetDataRead("NC_" + name), ["name"]);
             if(llGetInventoryType(name + "_PH") == INVENTORY_SCRIPT)
             {
                 llSetScriptState(name + "_PH", TRUE);
                 llResetOtherScript(name + "_PH");
             }
             log(DEFER_STR(Loading finished. Use the command DEFER_STR(/COMMAND_CHANNEL COMMAND_START) to start the test suite));
-        }
+        } 
     }
     else if(cmd == DEFER_STR(COMMAND_LOADTEST) && (string)parts[1] != "") // Loads a specific test from within the currently loaded suite
     {
@@ -664,15 +666,13 @@ default
 
                 if (data == EOF)
                 {
-                    llLinksetDataWrite("NC_" + name, notecardTestData);
-                    //llLinksetDataDelete("NC_" + name);
                     if(llJsonValueType(notecardTestData, []) == JSON_INVALID)
-                    {
                         log("Notecard \"" + name + "\" does not contain valid JSON.");
-                        llLinksetDataDelete("NC_" + name);
-                    }
                     else
+                    {
+                        llLinksetDataWrite("NC_" + name, notecardTestData);
                         log("Notecard \"" + name + DEFER_STR(" loaded. Activate it's suite using "/COMMAND_CHANNEL load) + " " + name + "\"");
+                    }
                     
                     _tests = llDeleteSubList(_tests, i, i);
                 }
@@ -988,7 +988,7 @@ state run_test
                 placeholderChecks += [(string)params[3]];
             }
             _currentActionParam5 = getParameter((string)params[4]);
-            if(_currentActionParam4 == INVALID_PLACEHOLDER)
+            if(_currentActionParam5 == INVALID_PLACEHOLDER)
             {
                 logInfo("Placeholder in p5 is invalid.");
                 placeholderChecks += [(string)params[4]];
@@ -1141,9 +1141,12 @@ state run_test
                 integer len = llGetListLength(_receivedMessage);
                 logVerbose("Received messages at this point: " + llDumpList2String(_receivedMessage, ", "));
                 string compare = _currentActionParam2;
-                integer wildcardIndex = llSubStringIndex(compare, "*");
-                if(wildcardIndex != -1)
-                    compare = llGetSubString(compare, 0, wildcardIndex - 1);
+                integer stringCheckIndex = llSubStringIndex(compare, "*");
+                if(~stringCheckIndex)
+                {
+                    compare = llStringTrim(llGetSubString(compare, 0, stringCheckIndex - 1), STRING_TRIM_TAIL);
+                    stringCheckIndex = llStringLength(compare) - 1;
+                }
                 for(; _expectLastMessageIndex < len; _expectLastMessageIndex += 3)
                 {
                     if((float)_receivedMessage[_expectLastMessageIndex + 2] > _timeToCheck)
@@ -1151,12 +1154,12 @@ state run_test
                         if((integer)_receivedMessage[_expectLastMessageIndex + 1] == (integer)_currentActionParam1)
                         {
                             string message = (string)_receivedMessage[_expectLastMessageIndex];
-                            if(wildcardIndex != -1)
-                                message = llGetSubString(message, 0, wildcardIndex - 1);
+                            if(~stringCheckIndex)
+                                message = llGetSubString(message, 0, stringCheckIndex);
                             logVerbose("Current string comparison: " + message + " to compare it to: " + compare);
                             if(message == compare)
                             {
-                                if(_currentActionParam5)
+                                if((integer)_currentActionParam5)
                                 {
                                     _currentTaskFailureMessage = "Found \"" + _currentActionParam2 + "\" among messages received.";
                                     _currentTaskState = TASKSTATE_FAILURE;
@@ -1177,7 +1180,7 @@ state run_test
                 {
                     if(llGetTime() > (_timeToCheck + ((float)_currentActionParam3 / 1000)))
                     {
-                        if(_currentActionParam5)                        
+                        if((integer)_currentActionParam5)                        
                             _currentTaskState = TASKSTATE_SUCCESS;
                         else
                         {
@@ -1262,6 +1265,7 @@ state run_test
 
         if(_currentTaskState == TASKSTATE_FAILURE)
         {
+            _activeTestState = TESTSTATE_FAILURE;
             reportTaskState();
             state load_next_test;
         }
