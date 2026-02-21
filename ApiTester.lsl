@@ -15,6 +15,7 @@
 // v1.1.2: Fixed bug in EXPECT. Removed touch events in favor of commands - Voisin (Nensec Resident)
 // v1.2: Added new action type ASSERT, Added falsey test for EXPECT - Voisin (Nensec Resident)
 // v1.2.1: Swapped parameters 1 and 2 around for ASSERT, ASSERT channels are now properly listen'd for on test start - Voisin (Nensec Resident)
+// v1.2.2: Various small fixes and inconsistensies, added NULL and THIS placeholders - Voisin (Nensec Resident)
 
 // -- What is it
 

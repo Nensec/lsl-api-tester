@@ -10,6 +10,7 @@ Feel free to modify and redistribute this script however you please, I simply as
 - v1.1.2: Fixed bug in EXPECT. Removed touch events in favor of commands - Voisin (Nensec Resident)
 - v1.2: Added new action type ASSERT, Added falsey test for EXPECT - Voisin (Nensec Resident)
 - v1.2.1: Swapped parameters 1 and 2 around for ASSERT, ASSERT channels are now properly listen'd for on test start - Voisin (Nensec Resident)
+- v1.2.2: Various small fixes and inconsistensies, added NULL and THIS placeholders - Voisin (Nensec Resident)
 
 ## What is it
 
@@ -141,6 +142,8 @@ All parameters for actions have the ability to be replaced dynamically by a diff
 | :--- | :--- |
 | `AV` | The avatar's UUID. |
 | `TESTCHANNEL` | The integer that was defined as part of the TEST_CHANNEL macro in the configuration section |
+| `NULL` | The equivalent of NULL_KEY |
+| `THIS` | The UUID of the prim that ApiTester.lsl is in |
 
 ## To add your own
 Create a new script file that has the same name as your notecard but append the suffix `_PH` to it. Add a new llLinksetDataWrite for every placeholder you want to add, you can always call a function as well if something is especially complex to calculate.
