@@ -474,9 +474,7 @@ commandHandler(string message)
 {
     list parts = llParseString2List(message, [" "], []);
     string cmd = (string)parts[0];
-    if(cmd == DEFER_STR(COMMAND_RELOAD)) // Reloads all notecards, wiping currently loaded from LSD
-        loadNotecards();
-    else if(cmd == DEFER_STR(COMMAND_LOAD) && (string)parts[1] != "") // Loads a specific test suite, it's name must match that of the notecard originally read
+    if(cmd == DEFER_STR(COMMAND_LOAD) && (string)parts[1] != "") // Loads a specific test suite, it's name must match that of the notecard originally read
     {
         string name = llDumpList2String(llList2List(parts, 1, -1), " ");
         if(llJsonValueType(llLinksetDataRead("NC_" + name), []) != JSON_OBJECT)
@@ -697,7 +695,10 @@ default
             return;
         }
 #endif
-        commandHandler(message);
+        if(message == DEFER_STR(COMMAND_RELOAD)) // Reloads all notecards, wiping currently loaded from LSD
+            loadNotecards();
+        else 
+            commandHandler(message);
     }
 
     on_rez(integer start_param)
