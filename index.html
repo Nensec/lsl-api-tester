@@ -75,6 +75,40 @@
         .tooltip-inner {
             text-align: left;
         }
+
+        .json-key {
+            color: #f87171;
+        }
+
+        /* Red-ish */
+        .json-string {
+            color: #a3e635;
+        }
+
+        /* Green-ish */
+        .json-number {
+            color: #60a5fa;
+        }
+
+        /* Blue-ish */
+        .json-boolean {
+            color: #fbbf24;
+        }
+
+        /* Yellow */
+        .json-null {
+            color: #9ca3af;
+            font-style: italic;
+        }
+
+        /* Gray */
+        .json-container {
+            background: #1a1d20;
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 60vh;
+            overflow-y: auto;
+        }
     </style>
 </head>
 
@@ -101,11 +135,11 @@
         const TYPE_HELP = "<ul><li><b>SEND</b>: Send a message on a channel to kick off the test</li><li><b>ASK</b>: Ask a Yes/No question, if answered with No then the test is marked as failed.</li><li><b>REZ</b>: Rezzes a Relay object. It's name gets added to LSD as a placeholder with the value being its UUID.</li><li><b>EXPECT</b>: Assert a certain value is returned since beginning of test, SEND or RELAY. If a * is added any remaining string after the * is ignored.</li><li><b>RELAY</b>: Instructs a given Relay object to relay a message.</li><li><b>ATTACH</b>: Attaches a Relay object. It's name gets added to LSD as a placeholder with the value being its UUID.</li><li><b>ASSERT</b>: Sends a message that is meant to be received by the testsuite_PH.lsl script. It can then do any kind of custom parsing and comparison it wants.</li></ul>";
         const ACTION_HELP = "Almost all parameters support placeholders. You define those yourself with the testsuite_PH.lsl script, or they are added via some actions. In all cases you can refer to a placeholder using the '$' token, for example: $AV. Four placeholders are added by default:<ul><li><b>AV</b>: Holds the owner avatar's UUID</li><li><b>TESTCHANNEL</b>: Holds the integer for the test channel</li><li><b>THIS</b>: Holds the UUID of the tester</li><li><b>NULL</b>: Holds the UUID that is NULL_KEY</li></ul>";
 
-        const EXPECT_TYPES = ["0 - Beginning of test", "1 - Since last SEND", "2 - Since last RELAY"];
-        const RELAY_CHANNELS = ["0 - RegionSayTo", "1 - llSay", "2 - llWhisper", "3 - llShout"];
-        const BOOLEAN_TYPES = ["0 - False", "1 - True"];
+        const EXPECT_TYPES = ["Beginning of test", "Since last SEND", "Since last RELAY"];
+        const RELAY_CHANNELS = ["RegionSayTo", "llSay", "llWhisper", "llShout"];
+        const BOOLEAN_TYPES = ["False", "True"];
 
-        const DEFAULT_COMMONACTIONS = [{ "REZ_DUMMY": {"name":"Rez dummy","actionType":2,"parameters":["DUMMY",2.5]} },{ "ATTACH_DUMMY": {"name":"Attach dummy","actionType":5,"parameters":["ATTACH"]}}];
+        const DEFAULT_COMMONACTIONS = [{ "REZ_DUMMY": { "name": "Rez dummy", "actionType": 2, "parameters": ["DUMMY", 2.5] } }, { "ATTACH_DUMMY": { "name": "Attach dummy", "actionType": 5, "parameters": ["ATTACH"] } }];
 
         // Fields that should be numbers if possible, but strings if they are placeholders ($)
         const NUMERIC_FIELDS = ["channel", "distance", "time", "waitTime"];
@@ -127,8 +161,8 @@
             useEffect(() => { setLocalValue(value); }, [value]);
 
             const handleBlur = () => {
-                if (localValue === "" || localValue === null) {
-                    onChange(localValue);
+                if (localValue === "" || localValue === null || localValue === undefined) {
+                    onChange("");
                     return;
                 }
                 // If it looks like a number, save as number. Otherwise string.
@@ -158,6 +192,67 @@
             const [data, setData] = useState(INITIAL_JSON);
             const [view, setView] = useState("dashboard"); // dashboard, test, common
             const [selectedId, setSelectedId] = useState(null); // The Key of the selected item
+
+            const [modalJson, setModalJson] = useState("");
+
+            // Formats JSON text with HTML span classes for CSS targeting
+            const syntaxHighlight = (json) => {
+                if (typeof json != 'string') json = JSON.stringify(json, undefined, 2);
+                json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+                    let cls = 'json-number';
+                    if (/^"/.test(match)) {
+                        if (/:$/.test(match)) cls = 'json-key';
+                        else cls = 'json-string';
+                    } else if (/true|false/.test(match)) {
+                        cls = 'json-boolean';
+                    } else if (/null/.test(match)) {
+                        cls = 'json-null';
+                    }
+                    return '<span class="' + cls + '">' + match + '</span>';
+                });
+            };
+
+            // Checks for empty parameters and sanitizes nulls/missing fields
+            const sanitizeAndValidate = () => {
+                let hasEmpty = false;
+                let newData = JSON.parse(JSON.stringify(data)); // Deep copy
+
+                const checkActions = (actions) => {
+                    actions.forEach(action => {
+                        if (typeof action === 'object') {
+                            const actionDef = ACTION_TYPES[action.actionType] || ACTION_TYPES[0];
+                            const expectedParams = actionDef.params.length;
+
+                            // Ensure array is exact length needed
+                            while (action.parameters.length < expectedParams) action.parameters.push("");
+                            action.parameters = action.parameters.slice(0, expectedParams);
+
+                            for (let i = 0; i < expectedParams; i++) {
+                                const pName = actionDef.params[i].name;
+                                const isEnum = pName === "type" || pName === "channelType" || pName === "invert";
+
+                                // Check if the value is missing or completely empty
+                                if (action.parameters[i] === null || action.parameters[i] === undefined || action.parameters[i] === "") {
+                                    if (isEnum) {
+                                        // Automatically fix missing enumerated fields to 0 without warning
+                                        action.parameters[i] = 0;
+                                    } else {
+                                        // It's a normal string/number field, force clean string and flag warning
+                                        action.parameters[i] = "";
+                                        hasEmpty = true;
+                                    }
+                                }
+                            }
+                        }
+                    });
+                };
+
+                newData.tests.forEach(t => checkActions(t[Object.keys(t)[0]].actions));
+                newData.commonActions.forEach(c => checkActions([c[Object.keys(c)[0]]]));
+
+                return { safeData: newData, hasEmpty };
+            };
 
             // -- DATA ACCESSORS
             // The schema uses [{ "Key": { val } }], which is annoying to map. We convert to array of objects with keys for UI.
@@ -199,13 +294,29 @@
                 e.target.value = null; // Reset input so same file can be uploaded again
             };
 
-            const downloadJson = () => {
-                const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `${data.name.replace(/\s+/g, '_')}_${data.version}.txt`;
-                a.click();
+            const handleExport = (type) => { // 'download' or 'view'
+                const { safeData, hasEmpty } = sanitizeAndValidate();
+
+                if (hasEmpty) {
+                    if (!confirm("Warning: One or more action parameters are completely empty.\n\nIf you proceed, they will be saved as empty strings (\"\"). Do you want to continue?")) return;
+                }
+
+                // Save the sanitized data back to state so UI reflects the cleaned nulls
+                setData(safeData);
+
+                const jsonStr = JSON.stringify(safeData, null, 2);
+
+                if (type === 'download') {
+                    const blob = new Blob([jsonStr], { type: "application/json" });
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = `${safeData.name.replace(/\s+/g, '_')}_${safeData.version}.txt`;
+                    a.click();
+                } else {
+                    setModalJson(jsonStr);
+                    const modal = new bootstrap.Modal(document.getElementById('jsonModal'));
+                    modal.show();
+                }
             };
 
             const clearAll = () => {
@@ -253,7 +364,7 @@
                 if (getCommonActions().find(c => c.key === name)) return alert("Name already exists");
 
                 // Default Action Structure
-                const newAction = { [name]: { name: "New Action", actionType: 0, parameters: [] } };
+                const newAction = { [name]: { name: "New Action", actionType: 0, parameters: Array(ACTION_TYPES[0].params.length).fill("") } };
                 setData(prev => ({ ...prev, commonActions: [...prev.commonActions, newAction] }));
                 setSelectedId(name);
                 setView("common");
@@ -425,7 +536,10 @@
                                 <label className="btn btn-secondary btn-sm my-2">
                                     Upload JSON <input type="file" hidden accept=".json,.txt" onChange={handleFileUpload} />
                                 </label>
-                                <button className="btn btn-primary btn-sm my-2" onClick={downloadJson}>Download JSON</button>
+                                <div className="btn-group">
+                                    <button className="btn btn-primary btn-sm w-50" onClick={() => handleExport('view')}>View JSON</button>
+                                    <button className="btn btn-success btn-sm w-50" onClick={() => handleExport('download')}>Download JSON</button>
+                                </div>
                                 <button className="btn btn-danger btn-sm my-2" onClick={clearAll}>Clear All</button>
                             </div>
                         </div>
@@ -455,6 +569,27 @@
                                     onDelete={() => deleteCommonAction(selectedId)}
                                 />
                             )}
+                        </div>
+                    </div>
+                    {/* JSON VIEWER MODAL */}
+                    <div className="modal fade" id="jsonModal" tabIndex="-1" aria-hidden="true">
+                        <div className="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                            <div className="modal-content bg-dark text-light border-secondary">
+                                <div className="modal-header border-secondary">
+                                    <h5 className="modal-title">JSON Viewer</h5>
+                                    <button type="button" className="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <div className="modal-body p-0">
+                                    <pre className="json-container m-0" dangerouslySetInnerHTML={{ __html: syntaxHighlight(modalJson) }}></pre>
+                                </div>
+                                <div className="modal-footer border-secondary">
+                                    <button type="button" className="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                    <button type="button" className="btn btn-primary" onClick={() => {
+                                        navigator.clipboard.writeText(modalJson);
+                                        alert("JSON copied to clipboard!");
+                                    }}>Copy to Clipboard</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -494,7 +629,7 @@
             const addAction = (type) => { // type = 'custom' or 'common'
                 let newAction;
                 if (type === 'custom') {
-                    newAction = { name: "New Action", actionType: 0, parameters: [] };
+                    newAction = { name: "New Action", actionType: 0, parameters: Array(ACTION_TYPES[0].params.length).fill("") };
                 } else {
                     if (commonActionKeys.length === 0) return alert("No common actions defined");
                     newAction = commonActionKeys[0]; // Default to first
@@ -678,7 +813,7 @@
                 if (paramName === "type") {
                     return (
                         <select className="form-select" value={(action.parameters[idx] === "" || action.parameters[idx] === undefined) ? 0 : action.parameters[idx]} onChange={e => updateParam(idx, parseInt(e.target.value))}>
-                            {EXPECT_TYPES.map((t, i) => <option key={i} value={i}>{t}</option>)}
+                            {EXPECT_TYPES.map((t, i) => <option key={i} value={i}>{i} - {t}</option>)}
                         </select>
                     );
                 }
@@ -687,7 +822,7 @@
                 if (paramName === "channelType") {
                     return (
                         <select className="form-select" value={(action.parameters[idx] === "" || action.parameters[idx] === undefined) ? 0 : action.parameters[idx]} onChange={e => updateParam(idx, parseInt(e.target.value))}>
-                            {RELAY_CHANNELS.map((t, i) => <option key={i} value={i}>{t}</option>)}
+                            {RELAY_CHANNELS.map((t, i) => <option key={i} value={i}>{i} - {t}</option>)}
                         </select>
                     );
                 }
@@ -696,7 +831,7 @@
                 if (paramName === "invert") {
                     return (
                         <select className="form-select" value={(action.parameters[idx] === "" || action.parameters[idx] === undefined) ? 0 : action.parameters[idx]} onChange={e => updateParam(idx, parseInt(e.target.value))}>
-                            {BOOLEAN_TYPES.map((t, i) => <option key={i} value={i}>{t}</option>)}
+                            {BOOLEAN_TYPES.map((t, i) => <option key={i} value={i}>{i} - {t}</option>)}
                         </select>
                     );
                 }
