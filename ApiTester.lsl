@@ -9,13 +9,14 @@
 
 // -- Changelog
 
-// v1.0: Initial version - Voisin (Nensec Resident)
-// v1.1: Removed Boost framework and made tester completely notecard based, removing the need for a runner script - Voisin (Nensec Resident)
+// v1.0.0: Initial version - Voisin (Nensec Resident)
+// v1.1.0: Removed Boost framework and made tester completely notecard based, removing the need for a runner script - Voisin (Nensec Resident)
 // v1.1.1: Various bug fixes and optimizations - Voisin (Nensec Resident)
 // v1.1.2: Fixed bug in EXPECT. Removed touch events in favor of commands - Voisin (Nensec Resident)
-// v1.2: Added new action type ASSERT, Added falsey test for EXPECT - Voisin (Nensec Resident)
+// v1.2.0: Added new action type ASSERT, Added falsey test for EXPECT - Voisin (Nensec Resident)
 // v1.2.1: Swapped parameters 1 and 2 around for ASSERT, ASSERT channels are now properly listen'd for on test start - Voisin (Nensec Resident)
 // v1.2.2: Various small fixes and inconsistensies, added NULL and THIS placeholders - Voisin (Nensec Resident)
+// v1.3.0: Removed ASSERT's option to listen to channel, you can't listen to yourself so this will never work. Optionally separated out loading of the notecard and parsing it into a separate ApiTester_Loader.lsl script.
 
 // -- What is it
 
@@ -29,7 +30,7 @@
 // As this script is meant for developers, I welcome forking and subsequent pull requests with modifications!
 
 // The tester has 3 objects that it uses.
-//  - The tester object. ApiTester.lsl lives in here.
+//  - The tester object. ApiTester.lsl lives in here as well as ApiTester_Loader.lsl if you opt to use that.
 //  - A rezzable object. ApiTester_Relay.lsl lives in here. This object is meant to be rezzed, as such it requires to be Copy/Modify.
 //  - An attachable object. ApiTester_Relay.lsl lives in here as well. This object is meant to be temporary attached, as such it also requires to be Copy/Modify.
 // The rezzable object and attachable object need to be in the inventory of the tester object.
@@ -116,16 +117,14 @@
 //     - string name
 
 // -- ASSERT (6)
-// Sends a message that is meant to be received by the <testsuite>_PH.lsl script. It can then do any kind of custom parsing and comparison it wants.
-// By default this is send via llRegionSayTo to the owner of the tester object on channel TEST_CHANNEL. However if you notice that size of the JSON is an issue for you due to the volume of messages
-// you can configure the tester to instead send it via llMessageLinked instead.
-// The message will be in JSON format, according to the scheme found in assert.schema.json (this can be found on the github linked above)
+// Sends a message that is meant to be received by the `<testsuite>_PH.lsl` script as a link message. It can then do any kind of custom parsing and comparison it wants.
+
+// The message will be in JSON format, according to the scheme found in [assert.schema.json](https://github.com/Nensec/lsl-api-tester/blob/master/assert.schema.json)
 // The ASSERT will be send to the processing helper script after waitTime has passed.
-//
-// The tester expects a message back on TEST_CHANNEL with the provided token as well as the answer of "fail" or "ok" prefixed with the "assert" command.
+
+// The tester expects a message back as a link message with the provided token as well as the answer of `fail` or `ok` prefixed with the `assert` command.
 // The tester will wait for a maximum of 500ms for a reply back.
 // Example: assert 7321d897-ad5f-f98c-11ea-f5a56e2399ff ok
-//
 // - Parameters:
 //     - integer channel
 //     - integer waitTime (in milliseconds)
@@ -177,6 +176,10 @@
 #define TEST_CHANNEL -8378464 // This is the channel that the tests and relay communicate on, all listeners are filtered by owner avatar id.
 #define COMMAND_CHANNEL 9 // This is the channel where the tester receives user commands on
 
+#define TEST_LOADER TEST_LOADER_SCRIPT // By default all the logic is handled within this one script (TEST_LOADER_THIS). But if your test suite reaches the point that loading it stack heaps this script you can compile it to use the ApiTester_Loader.lsl script instead (TEST_LOADER_SCRIPT) to offload loading.
+
+#define TEST_WAIT_TIME 0.05 // Running a test can spam quite a bit, causing delays in expected function. This delay can be increased to reduce the problem at the cost of increased test time.
+
 #define ASK_TYPE ASK_TYPE_DIALOG // Should the ASK action request a reply in a clickable chat message (ASK_TYPE_CHAT), or should it show a dialog with buttons (ASK_TYPE_DIALOG)?
 
 #define DUMMY_OBJECT "Dummy" // The name of the Relay object to rez when REZ is used. This object has to exist in the inventory where this tester script lives and must contain the ApiTester_Relay.lsl script.
@@ -186,7 +189,6 @@
 #define DUMMY_ATTACH "Attach" // The name of the Relay object to rez and attach when ATTACH is used. This object has to exist in the inventory where this tester script lives and must contain the ApiTester_Relay.lsl script.
 #define DUMMY_ATTACH_POINT 35 // See https://wiki.secondlife.com/wiki/LlAttachToAvatar for attachment points
 
-#define ASSERT_SEND_METHOD ASSERT_SEND_METHOD_CHAT // The method used to send ASSERT messages to the helper script, either via chat (ASSERT_SEND_METHOD_CHAT) on channel TEST_CHANNEL or via link message (ASSERT_SEND_METHOD_LINK) or have the processing helper script decide (ASSERT_SEND_METHOD_PH). This will add additional bytecode to support both methods.
 #define ASSERT_REPLY_TIMEOUT 500 // The time how long the tester will wait for the processing helper script to reply to ASSERT
 
 // ####################################################################################
@@ -197,6 +199,9 @@
 #define _ ""
 #define STR(...) #__VA_ARGS__
 #define DEFER_STR(...) STR(__VA_ARGS__)
+
+#define TEST_LOADER_THIS 0
+#define TEST_LOADER_SCRIPT 1
 
 #define TESTSTATE_IDLE 0
 #define TESTSTATE_SUCCESS 1
@@ -239,8 +244,6 @@
 #define ASSERT_OK "ok"
 #define ASSERT_FAIL "fail"
 #define ASSERT_REPLY "assert"
-#define ASSERT_SEND_METHOD_CHAT 0
-#define ASSERT_SEND_METHOD_LINK 1
 #define ASSERT_SEND_METHOD_PH 2
 #define ASSERT_TYPE_BEGINNING 0
 #define ASSERT_TYPE_SEND 1
@@ -255,6 +258,10 @@
 #define COMMAND_REPORT report
 #define COMMAND_RESET reset
 #define COMMAND_LOADTEST loadtest
+
+#define INTERSCRIPT_COMMAND_LOADCARDS loadcards
+#define INTERSCRIPT_COMMAND_LOADSUITE loadsuite
+#define INTERSCRIPT_COMMAND_LOADEDSUITE loadedsuite
 
 #define INVALID_PLACEHOLDER JSON_INVALID
 
@@ -297,9 +304,6 @@ float _relayTime; // when was the last RELAY
 float _askTime; // when was the last ASK
 float _assertTime; // When was the last ASSERT
 
-#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
-integer _assertSendType; // This is only present when ASSERT_SEND_METHOD is _PH and keeps track of what assert type the PH script wants (chat or link)
-#endif
 key _assertToken; // This is the token given to the PH script to do its ASSERT logic, the token is compared upon receiving an answer such that the reply is linked to the correct ASSERT (in case of a timeout)
 
 float _timeToCheck; // Bytecode saver since this is used twice now
@@ -396,6 +400,7 @@ loadNextTask()
         _activeTestState = TESTSTATE_SUCCESS;
     else
     {
+        llSleep(TEST_WAIT_TIME);
         _currentTaskData = (string)actions[_currentTask];
 
         _currentTaskState = TASKSTATE_IDLE;
@@ -422,6 +427,7 @@ list getTaskActions()
     return actions;
 }
 
+#if TEST_LOADER == TEST_LOADER_THIS
 loadNotecards()
 {
     _tests = [];
@@ -447,7 +453,7 @@ loadNotecards()
         logVerbose("Parsing notecard: \"" + name + "\".");
     }
 }
-
+#endif
 saveRezzedDummy(key id)
 {
     logVerbose("Saving placeholder \"" + _currentActionParam1 + "\" with value: \"" + (string)id + "\".");
@@ -465,29 +471,34 @@ killOtherScripts()
     while(count--) // Kill other scripts in the tester object, this is to ensure there is no cross contamination as well as allow for PH scripts to do their init logic in default state_entry
     {
         name = llGetInventoryName(INVENTORY_SCRIPT, count);
-        if(name != thisScriptName)
+        if(llGetSubString(name, 0, llStringLength(thisScriptName) - 1) != thisScriptName)
             llSetScriptState(name, FALSE);
     }
 }
 
-commandHandler(string message)
+commandHandler(string message, key id)
 {
     list parts = llParseString2List(message, [" "], []);
     string cmd = (string)parts[0];
     if(cmd == DEFER_STR(COMMAND_LOAD) && (string)parts[1] != "") // Loads a specific test suite, it's name must match that of the notecard originally read
     {
+        logVerbose("Removing keys not associated with test suites..");
+        llLinksetDataDeleteFound("^([^N]|N[^C]|NC[^_]).*$", _);
+
+        logVerbose("Loading placeholders into LSD..");
+        DEFAULT_PLACEHOLDERS
+        logVerbose("Loading common actions into LSD..");
+        COMMON_ACTIONS
+        _currentSuite = _;
+        _tests = [];
+        killOtherScripts();
+
+#if TEST_LOADER == TEST_LOADER_THIS
         string name = llDumpList2String(llList2List(parts, 1, -1), " ");
         if(llJsonValueType(llLinksetDataRead("NC_" + name), []) != JSON_OBJECT)
             log("There is no suite called \"" + name + "\". " + DEFER_STR(View available suites using DEFER_STR(/COMMAND_CHANNEL COMMAND_SUITES)));
         else
         {
-            logVerbose("Removing keys not associated with test suites..");
-            llLinksetDataDeleteFound("^([^N]|N[^C]|NC[^_]).*$", _);
-
-            logVerbose("Loading placeholders into LSD..");
-            DEFAULT_PLACEHOLDERS
-            logVerbose("Loading common actions into LSD..");
-            COMMON_ACTIONS
 
             log("Loading test suite \"" + llJsonGetValue(llLinksetDataRead("NC_" + name), ["name"]) + "\"");
             _tests = [];
@@ -517,7 +528,10 @@ commandHandler(string message)
                 llResetOtherScript(name + "_PH");
             }
             log(DEFER_STR(Loading finished. Use the command DEFER_STR(/COMMAND_CHANNEL COMMAND_START) to start the test suite));
-        } 
+        }
+#else
+        llMessageLinked(LINK_THIS, 5000, DEFER_STR(INTERSCRIPT_COMMAND_LOADSUITE) + " " + llDumpList2String(llList2List(parts, 1, -1), " "), (string)COMMAND_CHANNEL);
+#endif
     }
     else if(cmd == DEFER_STR(COMMAND_LOADTEST) && (string)parts[1] != "") // Loads a specific test from within the currently loaded suite
     {
@@ -525,7 +539,7 @@ commandHandler(string message)
         {
             string name = llDumpList2String(llList2List(parts, 1, -1), " ");
             integer loadedTest = llListFindList(_tests, [name]);
-            if(loadedTest)
+            if(~loadedTest)
             {
                 _tests = [name];
                 log("Setting only test to be run to be \"" + name + "\". To restore run " + DEFER_STR(/COMMAND_CHANNEL COMMAND_LOAD) + " " + _currentSuite);
@@ -613,6 +627,7 @@ commandHandler(string message)
 #ifndef VERBOSE
             }
 #endif
+        llSleep(0.01);
         }
     }
     else if(cmd == DEFER_STR(COMMAND_RESET))
@@ -630,13 +645,16 @@ default
         logInfo("Wiping LSD.");
         llLinksetDataReset();
 
-#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
-        llListen(TEST_CHANNEL, _, NULL_KEY, _);
-#endif
+#if TEST_LOADER == TEST_LOADER_THIS
         loadNotecards();
+#elif TEST_LOADER == TEST_LOADER_SCRIPT
+        llMessageLinked(LINK_THIS, 5000, DEFER_STR(INTERSCRIPT_COMMAND_LOADCARDS), (string)COMMAND_CHANNEL);
+#else
+#error Invalid value defined for TEST_LOADER
+#endif
         llListen(COMMAND_CHANNEL, _, llGetOwner(), _);
     }
-
+#if TEST_LOADER == TEST_LOADER_THIS
     dataserver(key queryid, string data)
     {
         integer i;
@@ -672,7 +690,7 @@ default
                     else
                     {
                         llLinksetDataWrite("NC_" + name, notecardTestData);
-                        log("Notecard \"" + name + DEFER_STR(" loaded. Activate it's suite using "/COMMAND_CHANNEL load) + " " + name + "\"");
+                        log("Notecard \"" + name + DEFER_STR(" loaded. Activate it's suite using "/COMMAND_CHANNEL COMMAND_LOAD) + " " + name + "\"");
                     }
                     
                     _tests = llDeleteSubList(_tests, i, i);
@@ -682,24 +700,33 @@ default
             }
         }
     }
-
+#endif
     listen(integer channel, string name, key id, string message)
     {
-#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
-        if(channel == TEST_CHANNEL)
-        {
-            if(message == "asserttype chat")
-                _assertSendType = ASSERT_SEND_METHOD_CHAT;
-            else if(message == "asserttype link")
-                _assertSendType = ASSERT_SEND_METHOD_LINK;
-            return;
-        }
-#endif
         if(message == DEFER_STR(COMMAND_RELOAD)) // Reloads all notecards, wiping currently loaded from LSD
-            loadNotecards();
-        else 
-            commandHandler(message);
+#if TEST_LOADER == TEST_LOADER_THIS
+        loadNotecards();
+#elif TEST_LOADER == TEST_LOADER_SCRIPT
+        llMessageLinked(LINK_THIS, 5000, DEFER_STR(INTERSCRIPT_COMMAND_LOADCARDS), (string)COMMAND_CHANNEL);
+#endif
+        else
+            commandHandler(message, id);
     }
+#if TEST_LOADER == TEST_LOADER_SCRIPT
+    link_message(integer sender_num, integer num, string str, key id)
+    {
+        if(num != 4000)
+            return;
+
+        list parts = llParseString2List(str, [" "], []);
+        string cmd = (string)parts[0];
+        if(cmd == DEFER_STR(INTERSCRIPT_COMMAND_LOADEDSUITE))
+        {
+            _currentSuite = (string)parts[1];
+            _tests = llParseString2List((string)parts[2], ["|"], []);
+        }
+    }
+#endif
 
     on_rez(integer start_param)
     {
@@ -717,13 +744,29 @@ state report
 
     listen(integer channel, string name, key id, string message)
     {
-        commandHandler(message);
+        commandHandler(message, id);
     }
 
     on_rez(integer start_param)
     {
         llResetScript();
     }
+
+    #if TEST_LOADER == TEST_LOADER_SCRIPT
+    link_message(integer sender_num, integer num, string str, key id)
+    {
+        if(num != 4000)
+            return;
+
+        list parts = llParseString2List(str, [" "], []);
+        string cmd = (string)parts[0];
+        if(cmd == DEFER_STR(INTERSCRIPT_COMMAND_LOADEDSUITE))
+        {
+            _currentSuite = (string)parts[1];
+            _tests = llParseString2List((string)parts[2], ["|"], []);
+        }
+    }
+#endif
 }
 
 state load_next_test
@@ -913,26 +956,6 @@ state run_test
                 saveRezzedDummy(id);
                 return;
             }
-            else if(currentAction == ACTION_ASSERT)
-            {
-                // assert 7321d897-ad5f-f98c-11ea-f5a56e2399ff ok
-                string cmd = llGetSubString(message, 0, 5);
-                if(cmd == ASSERT_REPLY)
-                {
-                    key token = (key)llGetSubString(message, 7, 42);
-                    if(token != NULL_KEY && token == _assertToken)
-                    {
-                        string result = llGetSubString(message, 44, -1);
-                        if(result == ASSERT_OK)
-                            _currentTaskState = TASKSTATE_SUCCESS;
-                        if(result == ASSERT_FAIL)
-                            _currentTaskState = TASKSTATE_FAILURE;
-                    }                
-                
-                    logVerbose("ASSERT result: Got \"" + message + "\".");
-                    return;
-                }
-            }
         }
         else if(channel == COMMAND_CHANNEL)
         {
@@ -946,6 +969,30 @@ state run_test
         }
 
         _receivedMessage += [message, channel, llGetTime()];
+    }
+
+    link_message(integer sender_num, integer num, string message, key id)
+    {
+        integer currentAction = (integer)llJsonGetValue(_currentTaskData, ["actionType"]);
+        if(currentAction == ACTION_ASSERT)
+        {
+            string cmd = llGetSubString(message, 0, 5);
+            if(cmd == ASSERT_REPLY)
+            {
+                key token = (key)llGetSubString(message, 7, 42);
+                if(token != NULL_KEY && token == _assertToken)
+                {
+                    string result = llGetSubString(message, 44, -1);
+                    if(result == ASSERT_OK)
+                        _currentTaskState = TASKSTATE_SUCCESS;
+                    if(result == ASSERT_FAIL)
+                        _currentTaskState = TASKSTATE_FAILURE;
+                }                
+            
+                logVerbose("ASSERT result: Got \"" + message + "\".");
+                return;
+            }
+        }
     }
 
     object_rez(key id)
@@ -1143,7 +1190,7 @@ state run_test
             if(_currentTaskState == TASKSTATE_WAITING)
             {
                 integer len = llGetListLength(_receivedMessage);
-                logVerbose("Received messages at this point: " + llDumpList2String(_receivedMessage, ", "));
+                logVerbose("Received messages to compare at this point: " + llDumpList2String(llList2List(_receivedMessage, _expectLastMessageIndex, -1), ", "));
                 string compare = _currentActionParam2;
                 integer stringCheckIndex = llSubStringIndex(compare, "*");
                 if(~stringCheckIndex)
@@ -1249,18 +1296,7 @@ state run_test
                         }
                         logInfo("Sending JSON message to PH script.");
                         logVerbose("JSON: " + json);
-#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
-                        if(_assertSendType == ASSERT_SEND_METHOD_CHAT)
-#endif
-#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_CHAT || ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
-                        llRegionSayTo(llGetOwner(), TEST_CHANNEL, json);
-#endif
-#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
-                        if(_assertSendType == ASSERT_SEND_METHOD_LINK)
-#endif
-#if ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_LINK || ASSERT_SEND_METHOD == ASSERT_SEND_METHOD_PH
                         llMessageLinked(LINK_THIS, 0, json, NULL_KEY);
-#endif
                         _assertTime = llGetTime();
                     }
                 }

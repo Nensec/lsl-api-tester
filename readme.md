@@ -4,13 +4,15 @@ Feel free to modify and redistribute this script however you please, I simply as
 
 ## Changelog
 
-- v1.0: Initial version - Voisin (Nensec Resident)
-- v1.1: Removed Boost framework and made tester completely notecard based, removing the need for a runner script - Voisin (Nensec Resident)
+- v1.0.0: Initial version - Voisin (Nensec Resident)
+- v1.1.0: Removed Boost framework and made tester completely notecard based, removing the need for a runner script - Voisin (Nensec Resident)
 - v1.1.1: Various bug fixes and optimizations - Voisin (Nensec Resident)
 - v1.1.2: Fixed bug in EXPECT. Removed touch events in favor of commands - Voisin (Nensec Resident)
-- v1.2: Added new action type ASSERT, Added falsey test for EXPECT - Voisin (Nensec Resident)
+- v1.2.0: Added new action type ASSERT, Added falsey test for EXPECT - Voisin (Nensec Resident)
 - v1.2.1: Swapped parameters 1 and 2 around for ASSERT, ASSERT channels are now properly listen'd for on test start - Voisin (Nensec Resident)
 - v1.2.2: Various small fixes and inconsistensies, added NULL and THIS placeholders - Voisin (Nensec Resident)
+- v1.3.0: Removed ASSERT's option to listen to channel, you can't listen to yourself so this will never work. Optionally separated out loading of the notecard and parsing it into a separate ApiTester_Loader.lsl script.
+
 
 ## What is it
 
@@ -40,9 +42,9 @@ The tester utilizes a set of chat commands that allow you to drive the tester, c
 | :--- | :--- |
 | `/9 load <testsuite>` | Loads the test suite with the given name, names are equal to the notecard that defines them |
 | `/9 suites` | Displays all the currently loaded test suites that are available |
-| `/9 reload` | Reloads all the notecards, wipes the LSD of existing data regarding notecards |
+| `/9 reload` | Reloads all the notecards, wipes the LSD of existing data regarding notecards. Can only be used from the default start |
 | `/9 loadtest <testname>` | Removes all tests from the currently loaded test suite except for the given name, allowing you to run just this one test |
-| `/9 report` | Reports the test results after a test suite has finished |
+| `/9 report` | Reports the test results after a test suite has finished. Can only be used from the report state |
 | `/9 mem` | Reports on the current memory usage of the script |
 | `/9 reset` | Script resets `ApiTester.lsl` |
 | `/9 stop` | Only available during a test run, gracefully stops the current test suite as soon as possible |
@@ -115,14 +117,12 @@ Attaches a Relay object. It's name gets added to LSD as a placeholder with the v
     - **string** name
 
 ### ASSERT (6)
-Sends a message that is meant to be received by the `<testsuite>_PH.lsl` script. It can then do any kind of custom parsing and comparison it wants.
-By default this is send via llRegionSayTo to the owner of the tester object on channel TEST_CHANNEL. However if you notice that size of the JSON is an issue for you due to the volume of messages
-you can configure the tester to instead send it via llMessageLinked instead.
+Sends a message that is meant to be received by the `<testsuite>_PH.lsl` script as a link message. It can then do any kind of custom parsing and comparison it wants.
 
 The message will be in JSON format, according to the scheme found in [assert.schema.json](https://github.com/Nensec/lsl-api-tester/blob/master/assert.schema.json)
 The ASSERT will be send to the processing helper script after waitTime has passed.
 
-The tester expects a message back on TEST_CHANNEL with the provided token as well as the answer of `fail` or `ok` prefixed with the `assert` command.
+The tester expects a message back as a link message with the provided token as well as the answer of `fail` or `ok` prefixed with the `assert` command.
 The tester will wait for a maximum of 500ms for a reply back.
 
 Example: `assert 7321d897-ad5f-f98c-11ea-f5a56e2399ff ok`
@@ -175,4 +175,3 @@ Adjust the tester's behavior by modifying the `#define` macros at the top of the
 | `DUMMY_HEIGHT` | `0.64528` | Height offset to ensure the dummy rezes on the floor. |
 | `DUMMY_ATTACH` | `"Attach"` | Name of the object to rez and attach to the avatar. |
 | `ATTACH_POINT` | `35` | The attachment point ID used for dummies. |
-| `ASSERT_METHOD` | `ASSERT_SEND_METHOD_CHAT` | Method for ASSERT: `_CHAT`, `_LINK`, or `_PH`. |
