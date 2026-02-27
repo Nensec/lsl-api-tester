@@ -76,6 +76,10 @@
             text-align: left;
         }
 
+        option:disabled {
+            color: #7c7c7c;
+        }
+
         .json-key {
             color: #f87171;
         }
@@ -129,10 +133,12 @@
             3: { name: "EXPECT", params: [{ name: "channel", description: "What channel should be monitored. If using a placeholder must resolve to a integer." }, { name: "value", description: "What message are we looking for? You can use an * to denote a wildcard, comparisons will only be done up to that point. Can use multiple placeholders." }, { name: "time", description: "What is the maximum time to wait for in milliseconds for the message to arrive? If using a placeholder must resolve to an integer." }, { name: "type", description: "From when should we actually check messages?" }, { name: "invert", description: "Inverts the logic, checking if a message is not received." }] },
             4: { name: "RELAY", params: [{ name: "relay", description: "The target relay to send this request too. You will likely always want to use the placeholder name that was created as part of REZ or ATTACH." }, { name: "channel", description: "On what channel should the relay send a message? If using a placeholder must resolve to a integer." }, { name: "message", description: "What is the message to send? You can use multiple placeholders to format your message." }, { name: "channelType", description: "What kind of communication should the relay use?" }] },
             5: { name: "ATTACH", params: [{ name: "name", description: "The name to give the rezzed dummy. Can use multiple placeholders if you so wish." }] },
-            6: { name: "ASSERT", params: [{ name: "channel", description: "What channel should be monitored. If using a placeholder must resolve to a integer." }, { name: "waitTime", description: "How long, in milliseconds, should we collect messages for before sending this off to the PH script?" }, { name: "type", description: "From when should we actually check messages?" }] }
+            6: { name: "ASSERT", params: [{ name: "channel", description: "What channel should be monitored. If using a placeholder must resolve to a integer." }, { name: "waitTime", description: "How long, in milliseconds, should we collect messages for before sending this off to the PH script?" }, { name: "type", description: "From when should we actually check messages?" }] },
+            7: { name: "EXPECTRLV", params: [{ name: "restriction", description: "The RLV restriction to check for." }, { name: "value", description: "What value should this RLV restriction be, this value can be empty (and will not trigger the empty-value warning).", optional: true }] },
+            8: { name: "WAIT", params: [{ name: "waitTime", description: "How long should the tester wait before moving to the next task?" }] }
         };
 
-        const TYPE_HELP = "<ul><li><b>SEND</b>: Send a message on a channel to kick off the test</li><li><b>ASK</b>: Ask a Yes/No question, if answered with No then the test is marked as failed.</li><li><b>REZ</b>: Rezzes a Relay object. It's name gets added to LSD as a placeholder with the value being its UUID.</li><li><b>EXPECT</b>: Assert a certain value is returned since beginning of test, SEND or RELAY. If a * is added any remaining string after the * is ignored.</li><li><b>RELAY</b>: Instructs a given Relay object to relay a message.</li><li><b>ATTACH</b>: Attaches a Relay object. It's name gets added to LSD as a placeholder with the value being its UUID.</li><li><b>ASSERT</b>: Sends a message that is meant to be received by the testsuite_PH.lsl script. It can then do any kind of custom parsing and comparison it wants.</li></ul>";
+        const TYPE_HELP = "<ul><li><b>SEND</b>: Send a message on a channel to kick off the test</li><li><b>ASK</b>: Ask a Yes/No question, if answered with No then the test is marked as failed.</li><li><b>REZ</b>: Rezzes a Relay object. It's name gets added to LSD as a placeholder with the value being its UUID.</li><li><b>EXPECT</b>: Assert a certain value is returned since beginning of test, SEND or RELAY. If a * is added any remaining string after the * is ignored.</li><li><b>RELAY</b>: Instructs a given Relay object to relay a message.</li><li><b>ATTACH</b>: Attaches a Relay object. It's name gets added to LSD as a placeholder with the value being its UUID.</li><li><b>ASSERT</b>: Sends a message that is meant to be received by the testsuite_PH.lsl script. It can then do any kind of custom parsing and comparison it wants.</li><li><b>EXPECTRLV</b>: Checks for the presence of an RLV restriction and compares it to the value provided.</li><li><b>WAIT</b>: A simple wait task, useful when your API needs to gather data before the next task.</li></ul>";
         const ACTION_HELP = "Almost all parameters support placeholders. You define those yourself with the testsuite_PH.lsl script, or they are added via some actions. In all cases you can refer to a placeholder using the '$' token, for example: $AV. Four placeholders are added by default:<ul><li><b>AV</b>: Holds the owner avatar's UUID</li><li><b>TESTCHANNEL</b>: Holds the integer for the test channel</li><li><b>THIS</b>: Holds the UUID of the tester</li><li><b>NULL</b>: Holds the UUID that is NULL_KEY</li></ul>";
 
         const EXPECT_TYPES = ["Beginning of test", "Since last SEND", "Since last RELAY"];
@@ -140,6 +146,100 @@
         const BOOLEAN_TYPES = ["False", "True"];
 
         const DEFAULT_COMMONACTIONS = [{ "REZ_DUMMY": { "name": "Rez dummy", "actionType": 2, "parameters": ["DUMMY", 2.5] } }, { "ATTACH_DUMMY": { "name": "Attach dummy", "actionType": 5, "parameters": ["ATTACH"] } }];
+
+        const RLV_RESTRICTIONS = [
+            { description: "--- MOVEMENT & BASICS ---" },
+            { restriction: "fly", description: "Flight" },
+            { restriction: "jump", description: "Jumping" },
+            { restriction: "sit", description: "Sitting down" },
+            { restriction: "stand", description: "Standing up" },
+            { restriction: "walk", description: "Walking" },
+            { restriction: "run", description: "Running" },
+            { restriction: "temprun", description: "Double-tap running" },
+            { restriction: "alwaysrun", description: "Always-run toggle (Ctrl-R)" },
+            { restriction: "flee", description: "Fleeing (RLVa)" },
+
+            { description: "--- TELEPORTATION ---" },
+            { restriction: "tploc", description: "Location Teleport (Map/Beacons)" },
+            { restriction: "tplure", description: "Teleport Requests (Lures)" },
+            { restriction: "tplm", description: "Landmark Teleport" },
+            { restriction: "sittp", description: "Teleport-by-sit" },
+            { restriction: "standtp", description: "Teleport-by-standup" },
+            { restriction: "tpworldmap", description: "Teleport via World Map" },
+            { restriction: "tpminimap", description: "Teleport via Mini-Map" },
+            { restriction: "tplocal", description: "Local TP Range (RLVa)" },
+
+            { description: "--- COMMUNICATION (BINARY) ---" },
+            { restriction: "sendchat", description: "Public Chat sending" },
+            { restriction: "recvchat", description: "Public Chat receiving" },
+            { restriction: "sendim", description: "IM sending" },
+            { restriction: "recvim", description: "IM receiving" },
+            { restriction: "startim", description: "Starting new IM sessions" },
+            { restriction: "sendchannel", description: "Non-public channel chat" },
+            { restriction: "voice", description: "Voice Chat" },
+            { restriction: "emote", description: "Emoting (/me)" },
+
+            { description: "--- COMMUNICATION (DYNAMIC/RLVa) ---" },
+            { restriction: "recvchatfrom", description: "Receive chat from specific UUID" },
+            { restriction: "sendimto", description: "Send IM to specific UUID" },
+            { restriction: "recvimfrom", description: "Receive IM from specific UUID" },
+            { restriction: "sendim_dist", description: "IM Sending Distance (RLVa)" },
+            { restriction: "recvim_dist", description: "IM Receiving Distance (RLVa)" },
+
+            { description: "--- INVENTORY & ATTACHMENTS ---" },
+            { restriction: "detach", description: "Detaching objects" },
+            { restriction: "attach", description: "Attaching new objects" },
+            { restriction: "wear", description: "Changing clothes/outfits" },
+            { restriction: "addoutfit", description: "Adding to current outfit" },
+            { restriction: "remoutfit", description: "Removing from current outfit" },
+            { restriction: "rez", description: "Rezzing/dropping items" },
+            { restriction: "sharedwear", description: "Adding to #RLV folder (RLVa)" },
+            { restriction: "unsharedwear", description: "Removing from #RLV folder (RLVa)" },
+
+            { description: "--- INTERACTION & WORLD ---" },
+            { restriction: "edit", description: "Editing any object" },
+            { restriction: "interact", description: "World Interaction (RLVa)" },
+            { restriction: "fartouch", description: "Touch distance limit (RLVa)" },
+            { restriction: "temptouch", description: "Touching objects (Standard)" },
+            { restriction: "touchhud", description: "Clicking HUDs (RLVa)" },
+            { restriction: "touchworld", description: "Clicking In-World objects (RLVa)" },
+            { restriction: "editobj", description: "Editing specific UUID" },
+
+            { description: "--- UI VISIBILITY ---" },
+            { restriction: "showinv", description: "Inventory window" },
+            { restriction: "showloc", description: "Location/Coordinates UI" },
+            { restriction: "showworldmap", description: "World Map window" },
+            { restriction: "showminimap", description: "Mini-map window" },
+            { restriction: "shownames", description: "Avatar Names/Hovertext" },
+            { restriction: "shownametags", description: "Avatar Nametags (RLVa)" },
+            { restriction: "shownearby", description: "Nearby Radar/People (RLVa)" },
+            { restriction: "showsocial", description: "Friends/Groups lists" },
+            { restriction: "showappearance", description: "Appearance Editor" },
+            { restriction: "showhovertextall", description: "All Hovertext (RLVa)" },
+            { restriction: "showtopmenu", description: "Viewer Top Menu (RLVa)" },
+
+            { description: "--- VISION & CAMERA ---" },
+            { restriction: "camunlock", description: "Camera movement (Free Cam)" },
+            { restriction: "camtextures", description: "World Textures (RLV)" },
+            { restriction: "setcam_textures", description: "World Textures (RLVa)" },
+            { restriction: "setoverlay", description: "Full-screen Texture Overlay" },
+            { restriction: "setsphere", description: "Vision Sphere/Shader" },
+            { restriction: "setcam_fovmin", description: "Min Field of View" },
+            { restriction: "setcam_fovmax", description: "Max Field of View" },
+            { restriction: "showself", description: "Own avatar body (RLVa)" },
+            { restriction: "showselfhead", description: "Own head/First-person (RLVa)" },
+            { restriction: "mouselook", description: "Force/Block Mouselook" },
+
+            { description: "--- SYSTEM & MISC ---" },
+            { restriction: "setgroup", description: "Changing active group" },
+            { restriction: "setenv", description: "Changing Windlight/Environment" },
+            { restriction: "permissive", description: "Permissive Mode" },
+            { restriction: "notify", description: "System Notifications" },
+            { restriction: "search", description: "Search Window" },
+            { restriction: "gesture", description: "Using Gestures" },
+            { restriction: "outfit", description: "Outfit Gallery" },
+            { restriction: "logshow", description: "Chat/IM History (RLVa)" }
+        ];
 
         // Fields that should be numbers if possible, but strings if they are placeholders ($)
         const NUMERIC_FIELDS = ["channel", "distance", "time", "waitTime"];
@@ -224,11 +324,13 @@
                             const actionDef = ACTION_TYPES[action.actionType] || ACTION_TYPES[0];
                             const expectedParams = actionDef.params.length;
 
-                            // Ensure array is exact length needed
-                            while (action.parameters.length < expectedParams) action.parameters.push("");
                             action.parameters = action.parameters.slice(0, expectedParams);
 
                             for (let i = 0; i < expectedParams; i++) {
+                                // If a parameter is optional then skip and go to the next parameter                            
+                                if (actionDef.params[i].optional)
+                                    continue;
+
                                 const pName = actionDef.params[i].name;
                                 const isEnum = pName === "type" || pName === "channelType" || pName === "invert";
 
@@ -248,8 +350,26 @@
                     });
                 };
 
-                newData.tests.forEach(t => checkActions(t[Object.keys(t)[0]].actions));
-                newData.commonActions.forEach(c => checkActions([c[Object.keys(c)[0]]]));
+                newData.tests.forEach(t => {
+                    const testKey = Object.keys(t)[0];
+                    const testObj = t[testKey];
+
+                    if (testObj.dependencies && testObj.dependencies.length === 0) {
+                        delete testObj.dependencies;
+                    }
+
+                    checkActions(testObj.actions);
+                });
+
+
+
+                if (newData.commonActions) {
+                    if (newData.commonActions.length === 0) {
+                        delete newData.commonActions;
+                    } else {
+                        newData.commonActions.forEach(c => checkActions([c[Object.keys(c)[0]]]));
+                    }
+                }
 
                 return { safeData: newData, hasEmpty };
             };
@@ -257,12 +377,12 @@
             // -- DATA ACCESSORS
             // The schema uses [{ "Key": { val } }], which is annoying to map. We convert to array of objects with keys for UI.
 
-            const getTests = () => data.tests.map(t => {
+            const getTests = () => (data.tests || []).map(t => {
                 const key = Object.keys(t)[0];
                 return { key, ...t[key] };
             });
 
-            const getCommonActions = () => data.commonActions.map(c => {
+            const getCommonActions = () => (data.commonActions || []).map(c => {
                 const key = Object.keys(c)[0];
                 return { key, ...c[key] };
             });
@@ -397,7 +517,7 @@
 
             const deleteCommonAction = (key) => {
                 if (!confirm("Are you sure? This might break tests referencing this action.")) return;
-                setData({ ...data, commonActions: data.commonActions.filter(c => Object.keys(c)[0] !== key) });
+                setData({ ...data, commonActions: (data.commonActions || []).filter(c => Object.keys(c)[0] !== key) });
                 setView("dashboard");
             };
 
@@ -409,7 +529,7 @@
                     if (getTests().find(t => t.key === newKey)) return alert("Name exists");
 
                     // Update Key
-                    const newTests = data.tests.map(t => {
+                    const newTests = (data.tests || []).map(t => {
                         const k = Object.keys(t)[0];
                         if (k === oldKey) return { [newKey]: t[k] };
 
@@ -427,13 +547,13 @@
                     if (getCommonActions().find(c => c.key === newKey)) return alert("Name exists");
 
                     // Update Definition
-                    const newCA = data.commonActions.map(c => {
+                    const newCA = (data.commonActions || []).map(c => {
                         const k = Object.keys(c)[0];
                         return k === oldKey ? { [newKey]: c[k] } : c;
                     });
 
                     // Update References in ALL Tests
-                    const newTests = data.tests.map(t => {
+                    const newTests = (data.tests || []).map(t => {
                         const k = Object.keys(t)[0];
                         const newActions = t[k].actions.map(a => (typeof a === 'string' && a === oldKey) ? newKey : a);
                         return { [k]: { ...t[k], actions: newActions } };
@@ -600,9 +720,9 @@
 
         function TestEditor({ testKey, data, setData, onRename, onDelete }) {
             // Extract current test data
-            const testObj = data.tests.find(t => Object.keys(t)[0] === testKey)[testKey];
-            const allTestKeys = data.tests.map(t => Object.keys(t)[0]);
-            const commonActionKeys = Array.prototype.concat(DEFAULT_COMMONACTIONS, data.commonActions).map(c => Object.keys(c)[0]);
+            const testObj = (data.tests || []).find(t => Object.keys(t)[0] === testKey)[testKey];
+            const allTestKeys = (data.tests || []).map(t => Object.keys(t)[0]);
+            const commonActionKeys = Array.prototype.concat(DEFAULT_COMMONACTIONS, data.commonActions || []).map(c => Object.keys(c)[0]);
             const [localName, setLocalName] = useState(testKey);
 
             useEffect(() => {
@@ -610,7 +730,7 @@
             }, [testKey]);
 
             const updateTest = (newData) => {
-                const newTests = data.tests.map(t => {
+                const newTests = (data.tests || []).map(t => {
                     const k = Object.keys(t)[0];
                     return k === testKey ? { [k]: newData } : t;
                 });
@@ -679,7 +799,7 @@
                                 {allTestKeys.filter(k => k !== testKey).map(k => (
                                     <div key={k} className="form-check">
                                         <input className="form-check-input" type="checkbox"
-                                            checked={testObj.dependencies.includes(k)}
+                                            checked={(testObj.dependencies || []).includes(k)}
                                             onChange={() => toggleDependency(k)}
                                         />
                                         <label className="form-check-label">{k}</label>
@@ -742,7 +862,7 @@
         // Wraps the inner ActionEditor to handle the top-level object structure of Common Actions
 
         function CommonActionWrapper({ actionKey, data, setData, onRename, onDelete }) {
-            const actionObj = data.commonActions.find(c => Object.keys(c)[0] === actionKey)[actionKey];
+            const actionObj = (data.commonActions || []).find(c => Object.keys(c)[0] === actionKey)[actionKey];
             const [localName, setLocalName] = useState(actionKey);
 
             useEffect(() => {
@@ -750,7 +870,7 @@
             }, [actionKey]);
 
             const handleChange = (newVal) => {
-                const newArr = data.commonActions.map(c => {
+                const newArr = (data.commonActions || []).map(c => {
                     const k = Object.keys(c)[0];
                     return k === actionKey ? { [k]: newVal } : c;
                 });
@@ -776,7 +896,7 @@
         }
 
         // -- GENERIC ACTION EDITOR
-        // Renders inputs based on Action Type (0-6)
+        // Renders inputs based on Action Type
 
         function ActionEditor({ action, onChange, onRemove, isCommonRef = false }) {
 
@@ -832,6 +952,16 @@
                     return (
                         <select className="form-select" value={(action.parameters[idx] === "" || action.parameters[idx] === undefined) ? 0 : action.parameters[idx]} onChange={e => updateParam(idx, parseInt(e.target.value))}>
                             {BOOLEAN_TYPES.map((t, i) => <option key={i} value={i}>{i} - {t}</option>)}
+                        </select>
+                    );
+                }
+
+                // "restriction" parameter (EXPECTRLV)
+                if (paramName === "restriction") {
+                    return (
+                        <select className="form-select" value={(action.parameters[idx] === "" || action.parameters[idx] === undefined) ? "" : action.parameters[idx]} onChange={e => updateParam(idx, e.target.value)}>
+                            <option disabled value="">Choose restriction</option>
+                            {RLV_RESTRICTIONS.map((t, i) => <option key={i} value={t.restriction ? t.restriction : ""} disabled={t.restriction ? false : true}>{t.restriction ? t.restriction + " - " : ""}{t.description}</option>)}
                         </select>
                     );
                 }

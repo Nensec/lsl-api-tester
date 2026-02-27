@@ -4,15 +4,29 @@ Feel free to modify and redistribute this script however you please, I simply as
 
 ## Changelog
 
-- v1.0.0: Initial version - Voisin (Nensec Resident)
-- v1.1.0: Removed Boost framework and made tester completely notecard based, removing the need for a runner script - Voisin (Nensec Resident)
-- v1.1.1: Various bug fixes and optimizations - Voisin (Nensec Resident)
-- v1.1.2: Fixed bug in EXPECT. Removed touch events in favor of commands - Voisin (Nensec Resident)
-- v1.2.0: Added new action type ASSERT, Added falsey test for EXPECT - Voisin (Nensec Resident)
-- v1.2.1: Swapped parameters 1 and 2 around for ASSERT, ASSERT channels are now properly listen'd for on test start - Voisin (Nensec Resident)
-- v1.2.2: Various small fixes and inconsistensies, added NULL and THIS placeholders - Voisin (Nensec Resident)
-- v1.3.0: Removed ASSERT's option to listen to channel, you can't listen to yourself so this will never work. Optionally separated out loading of the notecard and parsing it into a separate ApiTester_Loader.lsl script.
-
+- v1.3.0 - Voisin (Nensec Resident)
+    - Removed ASSERT's option to listen to channel, you can't listen to yourself so this will never work
+    - Optionally separated out loading of the notecard and parsing it into a separate ApiTester_Loader.lsl script
+    - Added new action type EXPECTRLV which allows the tester to check if an RLV restriction is present
+    - Added new action type WAIT which allows the tester to wait for a specified amount of time before proceeding to the next task
+- v1.2.2 - Voisin (Nensec Resident)
+    - Various small fixes and inconsistensies
+    - Added NULL and THIS placeholders
+- v1.2.1 - Voisin (Nensec Resident)
+    - Swapped parameters 1 and 2 around for ASSERT
+    - ASSERT channels are now properly listen'd for on test start
+- v1.2.0 - Voisin (Nensec Resident)
+    - Added new action type ASSERT
+    - Added falsey test for EXPECT
+- v1.1.2 - Voisin (Nensec Resident)
+    - Fixed bug in EXPECT.
+    - Removed touch events in favor of commands
+- v1.1.1 - Voisin (Nensec Resident)
+    - Various bug fixes and optimizations
+- v1.1.0 - Voisin (Nensec Resident)
+    - Removed Boost framework and made tester completely notecard based, removing the need for a runner script
+- v1.0.0 - Voisin (Nensec Resident)
+    - Initial version
 
 ## What is it
 
@@ -124,6 +138,17 @@ The ASSERT will be send to the processing helper script after waitTime has passe
 
 The tester expects a message back as a link message with the provided token as well as the answer of `fail` or `ok` prefixed with the `assert` command.
 The tester will wait for a maximum of 500ms for a reply back.
+
+### EXPECTRLV (7)
+Uses `@getstatusall` to check if a specific RLV restriction is present and compares it, optionally, to a supplied value. If no value is provided only checks if the restriction is present.
+- Parameters:
+    - **string** restriction
+    - **string** value (optional)
+
+### WAIT (8)
+Causes the test to wait for a specified amount of time before continuing on with the next task.
+- Parameters:
+    - **integer** waitTime (in milliseconds)
 
 Example: `assert 7321d897-ad5f-f98c-11ea-f5a56e2399ff ok`
 - Parameters:
