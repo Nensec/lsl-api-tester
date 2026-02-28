@@ -9,14 +9,14 @@
 
 // -- Changelog
 
-// v1.0.0: Initial version - Voisin (Nensec Resident)
-// v1.1.0: Removed Boost framework and made tester completely notecard based, removing the need for a runner script - Voisin (Nensec Resident)
-// v1.1.1: Various bug fixes and optimizations - Voisin (Nensec Resident)
-// v1.1.2: Fixed bug in EXPECT. Removed touch events in favor of commands - Voisin (Nensec Resident)
-// v1.2.0: Added new action type ASSERT, Added falsey test for EXPECT - Voisin (Nensec Resident)
+// v1.3.0: Removed ASSERT's option to listen to channel, you can't listen to yourself so this will never work, Optionally separated out loading of the notecard and parsing it into a separate ApiTester_Loader.lsl script, Added new action type EXPECTRLV which allows the tester to check if an RLV restriction is present, Added new action type WAIT which allows the tester to wait for a specified amount of time before proceeding to the next task - Voisin (Nensec Resident)
+// v1.2.2: Various small fixes and inconsistensies, Added NULL and THIS placeholders - Voisin (Nensec Resident)
 // v1.2.1: Swapped parameters 1 and 2 around for ASSERT, ASSERT channels are now properly listen'd for on test start - Voisin (Nensec Resident)
-// v1.2.2: Various small fixes and inconsistensies, added NULL and THIS placeholders - Voisin (Nensec Resident)
-// v1.3.0: Removed ASSERT's option to listen to channel, you can't listen to yourself so this will never work. Optionally separated out loading of the notecard and parsing it into a separate ApiTester_Loader.lsl script.
+// v1.2.0: Added new action type ASSERT, Added falsey test for EXPECT - Voisin (Nensec Resident)
+// v1.1.2: Fixed bug in EXPECT, Removed touch events in favor of commands - Voisin (Nensec Resident)
+// v1.1.1: Various bug fixes and optimizations - Voisin (Nensec Resident)
+// v1.1.0: Removed Boost framework and made tester completely notecard based, removing the need for a runner script - Voisin (Nensec Resident)
+// v1.0.0: Initial version - Voisin (Nensec Resident)
 
 // -- What is it
 
@@ -134,6 +134,17 @@
 //     - 1 (Since last SEND)
 //     - 2 (Since last RELAY)
 
+// -- EXPECTRLV (7)
+// Uses @getstatusall to check if a specific RLV restriction is present and compares it, optionally, to a supplied value. If no value is provided only checks if the restriction is present.// - Parameters:
+//     - string restriction
+//     - string value
+//     - integer inverse (inverts the logic if true (not 0), fails test if restriction is found or value doesn't match when found)
+
+// -- WAIT (8)
+// Causes the tester to wait for the specified amount of time, such as to give the API provider time to gather data or execute an action
+// - Parameters:
+//     - integer waitTime (in milliseconds)
+
 // - Placeholders
 // All parameters for actions have the ability to be replaced dynamically by a different value, something that is generally not known as a constant.
 // These are called `placeholders` and you can refer to them in your actions using the `$` symbol as a prefix. The tester, by default, has two placeholders already defined that you can use:
@@ -175,6 +186,7 @@
 // Tester configuration
 #define TEST_CHANNEL -8378464 // This is the channel that the tests and relay communicate on, all listeners are filtered by owner avatar id.
 #define COMMAND_CHANNEL 9 // This is the channel where the tester receives user commands on
+#define RLV_CHANNEL 8378464 // This is the channel that EXPECTRLV receives communication from RLV from, this channel has to be a positive number
 
 #define TEST_LOADER TEST_LOADER_SCRIPT // By default all the logic is handled within this one script (TEST_LOADER_THIS). But if your test suite reaches the point that loading it stack heaps this script you can compile it to use the ApiTester_Loader.lsl script instead (TEST_LOADER_SCRIPT) to offload loading.
 
@@ -222,6 +234,8 @@
 #define ACTION_RELAY 4
 #define ACTION_ATTACH 5
 #define ACTION_ASSERT 6
+#define ACTION_EXPECTRLV 7
+#define ACTION_WAIT 8
 
 #define ASK_YES "Yes"
 #define ASK_NO "No"
@@ -300,9 +314,8 @@ string  _currentActionParam5; // Parameter 5 of current action
 
 float _rezTime; // When was the last REZ
 float _sendTime; // When was the last SEND
-float _relayTime; // when was the last RELAY
-float _askTime; // when was the last ASK
-float _assertTime; // When was the last ASSERT
+float _relayTime; // When was the last RELAY
+float _queryTime; // Generic tracking of time for an action that does not need a specific time tracker
 
 key _assertToken; // This is the token given to the PH script to do its ASSERT logic, the token is compared upon receiving an answer such that the reply is linked to the correct ASSERT (in case of a timeout)
 
@@ -407,7 +420,7 @@ loadNextTask()
         _currentTaskFailureMessage = "";
 
         _assertToken = NULL_KEY;
-        _assertTime = 0;
+        _queryTime = 0;
 
         logInfo("Next task is: " + llJsonGetValue(_currentTaskData, ["name"]));
     }
@@ -792,34 +805,38 @@ state load_next_test
             string testName = (string)_tests[_activeTest];
             logVerbose("Loading data for test: \"" + testName + "\".");
             string testJson = llLinksetDataRead("T_" + testName);
-            list dependencies = llJson2List(llJsonGetValue(testJson, ["dependencies"]));
             list actions = getTaskActions();
-            logVerbose("Dependencies: " + llDumpList2String(dependencies, ", "));
-            if(dependencies)
+            string deps = llJsonGetValue(testJson, ["dependencies"]);
+            if(deps != JSON_INVALID)
             {
-                integer i;
-                integer len = llGetListLength(dependencies);
-                for(i = 0; i < len; i++)
+                list dependencies = llJson2List(deps);
+                if(dependencies)
                 {
-                    string dependencyTestResult = llLinksetDataRead("R_" + (string)dependencies[i]);
-                    if(llJsonGetValue(dependencyTestResult, ["result"]) != "Success")
+                    logVerbose("Dependencies: " + llDumpList2String(dependencies, ", "));
+                    integer i;
+                    integer len = llGetListLength(dependencies);
+                    for(i = 0; i < len; i++)
                     {
-                        string testResult = llJsonSetValue("{}", ["name"], (string)_tests[_activeTest]);
-                        testResult = llJsonSetValue(testResult, ["result"], "Skipped - Dependencies not met");
-                        len = llGetListLength(actions);
-                        for(i = 0; i < len; i++)
+                        string dependencyTestResult = llLinksetDataRead("R_" + (string)dependencies[i]);
+                        if(llJsonGetValue(dependencyTestResult, ["result"]) != "Success")
                         {
-                            string taskResult = "{}";
-                            taskResult = llJsonSetValue(taskResult, ["name"], llJsonGetValue((string)actions[i], ["name"]));
-                            taskResult = llJsonSetValue(taskResult, ["actionType"], llJsonGetValue((string)actions[i], ["actionType"]));
-                            taskResult = llJsonSetValue(taskResult, ["result"], "Not run");
+                            string testResult = llJsonSetValue("{}", ["name"], (string)_tests[_activeTest]);
+                            testResult = llJsonSetValue(testResult, ["result"], "Skipped - Dependencies not met");
+                            len = llGetListLength(actions);
+                            for(i = 0; i < len; i++)
+                            {
+                                string taskResult = "{}";
+                                taskResult = llJsonSetValue(taskResult, ["name"], llJsonGetValue((string)actions[i], ["name"]));
+                                taskResult = llJsonSetValue(taskResult, ["actionType"], llJsonGetValue((string)actions[i], ["actionType"]));
+                                taskResult = llJsonSetValue(taskResult, ["result"], "Not run");
 
-                            testResult = llJsonSetValue(testResult, ["actions", JSON_APPEND], taskResult);
+                                testResult = llJsonSetValue(testResult, ["actions", JSON_APPEND], taskResult);
+                            }
+
+                            llLinksetDataWrite("R_" + (string)_tests[_activeTest], testResult);
+                            logInfo("Skipping test \"" + testName + "\" because dependencies are not met.");
+                            jump advanceTest;
                         }
-
-                        llLinksetDataWrite("R_" + (string)_tests[_activeTest], testResult);
-                        logInfo("Skipping test \"" + testName + "\" because dependencies are not met.");
-                        jump advanceTest;
                     }
                 }
             }
@@ -860,6 +877,8 @@ state run_test
                 string channel = getParameter((string)taskParams[0]);
                 llListen((integer)channel, _, NULL_KEY, _);
             }
+            else if(taskType == ACTION_EXPECTRLV)
+                llListen(RLV_CHANNEL, _, NULL_KEY, _);
         }
 
         logVerbose("Finished initialization. Starting execution of actions.");
@@ -929,10 +948,9 @@ state run_test
         _assertToken = NULL_KEY;
 
         _rezTime = 0;
-        _askTime = 0;
+        _queryTime = 0;
         _relayTime = 0;
         _sendTime = 0;
-        _assertTime = 0;
     }
 
     listen(integer channel, string name, key id, string message)
@@ -965,6 +983,36 @@ state run_test
                 _currentTaskState = TASKSTATE_FAILURE;
                 _activeTestState = TESTSTATE_CANCELLED;
                 llSetTimerEvent(0);
+            }
+        }
+        else if(channel == RLV_CHANNEL)
+        {
+            list restrictions = llParseString2List(message, ["/", ":"], []);
+            integer index = llListFindList(restrictions, (list)_currentActionParam1);
+
+            if(~index)
+            {
+                if(_currentActionParam2 == "" || (string)restrictions[index + 1] == _currentActionParam2)
+                {
+                    if((integer)_currentActionParam3)
+                    {
+                        _currentTaskState = TASKSTATE_FAILURE;
+                        _currentTaskFailureMessage = "Found restriction + \"" + _currentActionParam1 + "\" with value \"" + (string)restrictions[index + 1] + "\" (expect to NOT match)";
+                    }
+                    else
+                        _currentTaskState = TASKSTATE_SUCCESS;
+                }
+                else if((integer)_currentActionParam3)
+                    _currentTaskState = TASKSTATE_SUCCESS;
+            }
+            else if((integer)_currentActionParam3)
+                _currentTaskState = TASKSTATE_SUCCESS;
+            else
+            {
+                _currentTaskState = TASKSTATE_FAILURE;
+                _currentTaskFailureMessage = "Could not find restriction \"" + _currentActionParam1 + "\"";
+                if(_currentActionParam2)
+                    _currentTaskFailureMessage += " with value \"" + _currentActionParam2 + "\"";
             }
         }
 
@@ -1065,7 +1113,7 @@ state run_test
                 if(llLinksetDataRead(_currentActionParam1))
                 {
                     logInfo("Unable to rez with name \"" + _currentActionParam1 + "\" as a placeholder with that name already exists.");
-                    _currentTaskFailureMessage = "Placeholder with name \"" + _currentActionParam1 + "\" already exists.";
+                    _currentTaskFailureMessage = "Placeholder with name \"" + _currentActionParam1 + "\" already exists";
                     _currentTaskState = TASKSTATE_FAILURE;
                 }
                 else
@@ -1119,12 +1167,12 @@ state run_test
 #else
 #error "Invalid configuration for ASK_TYPE"
 #endif
-                _askTime = llGetTime();
+                _queryTime = llGetTime();
                 _currentTaskState = TASKSTATE_WAITING;
             }
             else if(_currentTaskState == TASKSTATE_WAITING)
             {
-                if(llGetTime() - _askTime > 10.0)
+                if(llGetTime() - _queryTime > 10.0)
                 {
                     logInfo("Did not get a reply from user within 10 seconds.");
                     _currentTaskFailureMessage = "No reply from user";
@@ -1139,7 +1187,7 @@ state run_test
                 if((key)_currentActionParam1 == NULL_KEY)
                 {
                     _currentTaskState = TASKSTATE_FAILURE;
-                    _currentTaskFailureMessage = "Target key was NULL_KEY.";
+                    _currentTaskFailureMessage = "Target key was NULL_KEY";
                 }
                 else
                 {
@@ -1158,12 +1206,12 @@ state run_test
                 if((key)_currentActionParam1 == NULL_KEY)
                 {
                     _currentTaskState = TASKSTATE_FAILURE;
-                    _currentTaskFailureMessage = "Target key was NULL_KEY.";
+                    _currentTaskFailureMessage = "Target key was NULL_KEY";
                 }
                 else if((integer)_currentActionParam4 != RELAY_TYPE_REGIONSAYTO && (integer)_currentActionParam4 != RELAY_TYPE_SAY && (integer)_currentActionParam4 != RELAY_TYPE_WHISPER && (integer)_currentActionParam4 != RELAY_TYPE_SHOUT)
                 {
                     _currentTaskState = TASKSTATE_FAILURE;
-                    _currentTaskFailureMessage = "Invalid value type \"" + _currentActionParam4 + "\" specified.";
+                    _currentTaskFailureMessage = "Invalid value type \"" + _currentActionParam4 + "\" specified";
                     return;
                 }
                 else
@@ -1210,17 +1258,14 @@ state run_test
                             logVerbose("Current string comparison: " + message + " to compare it to: " + compare);
                             if(message == compare)
                             {
-                                if((integer)_currentActionParam5)
+                                if((integer)_currentActionParam5) 
                                 {
-                                    _currentTaskFailureMessage = "Found \"" + _currentActionParam2 + "\" among messages received.";
+                                    _currentTaskFailureMessage = "Found \"" + _currentActionParam2 + "\" among messages received";
                                     _currentTaskState = TASKSTATE_FAILURE;
-                                    jump endfor;
                                 }
                                 else
-                                {
                                     _currentTaskState = TASKSTATE_SUCCESS;
-                                    jump endfor;
-                                }
+                                jump endfor;
                             }
                         }
                     }
@@ -1235,7 +1280,7 @@ state run_test
                             _currentTaskState = TASKSTATE_SUCCESS;
                         else
                         {
-                            _currentTaskFailureMessage = "Unable to find \"" + _currentActionParam2 + "\" among messages received.";
+                            _currentTaskFailureMessage = "Unable to find \"" + _currentActionParam2 + "\" among messages received";
                             _currentTaskState = TASKSTATE_FAILURE;
                         }
                     }
@@ -1246,8 +1291,8 @@ state run_test
         {
             if(_currentTaskState == TASKSTATE_IDLE)
             {
-                if(_assertTime == 0 && (integer)_currentActionParam2 != 0)
-                    _assertTime = llGetTime();
+                if(_queryTime == 0 && (integer)_currentActionParam2 != 0)
+                    _queryTime = llGetTime();
 
                 if((integer)_currentActionParam3 == ASSERT_TYPE_SEND)
                     _timeToCheck = _sendTime;
@@ -1256,20 +1301,19 @@ state run_test
 
                 _currentTaskState = TASKSTATE_WAITING;
             }
-            
-            if(_currentTaskState == TASKSTATE_WAITING)
+            else if(_currentTaskState == TASKSTATE_WAITING)
             {
                 if(_assertToken)
                 {
-                    if(llGetTime() > (_assertTime + ((float)ASSERT_REPLY_TIMEOUT / 1000)))
+                    if(llGetTime() > (_queryTime + ((float)ASSERT_REPLY_TIMEOUT / 1000)))
                     {
-                        _currentTaskFailureMessage = "Did not receive a reply in time from the PH script.";
+                        _currentTaskFailureMessage = "Did not receive a reply in time from the PH script";
                         _currentTaskState = TASKSTATE_FAILURE;
                     }
                 }
                 else
                 {
-                    if(llGetTime() > (_assertTime + ((float)_currentActionParam2 / 1000)))
+                    if(llGetTime() > (_queryTime + ((float)_currentActionParam2 / 1000)))
                     {
                         string json = "{}";
                         _assertToken = llGenerateKey();
@@ -1297,9 +1341,48 @@ state run_test
                         logInfo("Sending JSON message to PH script.");
                         logVerbose("JSON: " + json);
                         llMessageLinked(LINK_THIS, 0, json, NULL_KEY);
-                        _assertTime = llGetTime();
+                        _queryTime = llGetTime();
                     }
                 }
+            }
+        }
+        else if(currentActionType == ACTION_EXPECTRLV)
+        {
+            if(_currentTaskState == TASKSTATE_IDLE)
+            {
+                string rlvmsg = "@getstatusall:" + _currentActionParam1 + "=" + (string)RLV_CHANNEL;
+                logInfo("Sending to OwnerSay: " + rlvmsg);
+                llOwnerSay(rlvmsg);
+
+                _queryTime = llGetTime();
+                _currentTaskState = TASKSTATE_WAITING;
+            }
+            else if(_currentTaskState == TASKSTATE_WAITING)
+            {
+                if(llGetTime() - _queryTime > 1)
+                {
+                    logInfo("Did not get a reply from viewer.");
+                    if((integer)_currentActionParam3)
+                        _currentTaskState = TASKSTATE_SUCCESS;
+                    else
+                    {
+                        _currentTaskFailureMessage = "No reply from viewer, is RLV enabled?";
+                        _currentTaskState = TASKSTATE_FAILURE;
+                    }
+                }
+            }        
+        }
+        else if(currentActionType == ACTION_WAIT)
+        {
+            if(_currentTaskState == TASKSTATE_IDLE)
+            {
+                _queryTime = llGetTime();
+                _currentTaskState = TASKSTATE_WAITING;
+            }
+            else if(_currentTaskState == TASKSTATE_WAITING)
+            {
+                if(llGetTime() > (_queryTime + ((float)_currentActionParam1 / 1000)))
+                    _currentTaskState = TASKSTATE_SUCCESS;
             }
         }
 

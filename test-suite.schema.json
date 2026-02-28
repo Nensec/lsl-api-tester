@@ -42,8 +42,8 @@
                     "actionType": {
                       "type": "number",
                       "minimum": 0,
-                      "maximum": 6,
-                      "description": "Which task to perform: 0=SEND, 1=ASK, 2=REZ, 3=EXPECT, 4=RELAY, 5=ATTACH, 6=ASSERT"
+                      "maximum": 8,
+                      "description": "Which task to perform: 0=SEND, 1=ASK, 2=REZ, 3=EXPECT, 4=RELAY, 5=ATTACH, 6=ASSERT, 7=EXPECTRLV, 8=WAIT"
                     },
                     "parameters": {
                       "type": "array",
@@ -74,8 +74,8 @@
               "actionType": {
                 "type": "number",
                 "minimum": 0,
-                "maximum": 6,
-                "description": "Which task to perform: 0=SEND, 1=ASK, 2=REZ, 3=EXPECT, 4=RELAY, 5=ATTACH, 6=ASSERT"
+                "maximum": 8,
+                "description": "Which task to perform: 0=SEND, 1=ASK, 2=REZ, 3=EXPECT, 4=RELAY, 5=ATTACH, 6=ASSERT, 7=EXPECTRLV, 8=WAIT"
               },
               "parameters": {
                 "type": "array",
