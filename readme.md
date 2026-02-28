@@ -144,6 +144,7 @@ Uses `@getstatusall` to check if a specific RLV restriction is present and compa
 - Parameters:
     - **string** restriction
     - **string** value (optional)
+    - **integer** inverse *(inverts the logic if true (not 0), fails test if restriction is found or value doesn't match when found)*
 
 ### WAIT (8)
 Causes the test to wait for a specified amount of time before continuing on with the next task.
@@ -194,6 +195,8 @@ Adjust the tester's behavior by modifying the `#define` macros at the top of the
 | :--- | :--- | :--- |
 | `TEST_CHANNEL` | `-8378464` | Communication channel for tests/relays. Filtered by owner ID. |
 | `COMMAND_CHANNEL` | `9` | Channel for user chat commands (e.g. `/9 reload`). |
+| `TEST_LOADER` | `TEST_LOADER_SCRIPT` | If the loading of tests should be offloaded to ApiTester_Loader.lsl or ApiTester.lsl |
+| `TEST_WAIT_TIME` | `0.05` | How long the tester should wait in between tests. |
 | `ASK_TYPE` | `ASK_TYPE_DIALOG` | Use `ASK_TYPE_CHAT` for text or `ASK_TYPE_DIALOG` for buttons. |
 | `DUMMY_OBJECT` | `"Dummy"` | Name of the Relay object to rez from inventory. |
 | `DUMMY_ROTATION` | `<90, 270, 0>` | Facing direction of the rezzed dummy. |
