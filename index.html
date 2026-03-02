@@ -321,12 +321,18 @@
                 const checkActions = (actions) => {
                     actions.forEach(action => {
                         if (typeof action === 'object') {
+                            if (action.cleanup === false)
+                                delete action.cleanup;
+
                             const actionDef = ACTION_TYPES[action.actionType] || ACTION_TYPES[0];
                             const expectedParams = actionDef.params.length;
 
                             action.parameters = action.parameters.slice(0, expectedParams);
 
                             for (let i = 0; i < expectedParams; i++) {
+                                if (action.parameters[i] === null || action.parameters[i] === undefined)
+                                    action.parameters[i] = "";
+
                                 // If a parameter is optional then skip and go to the next parameter                            
                                 if (actionDef.params[i].optional)
                                     continue;
@@ -335,7 +341,7 @@
                                 const isEnum = pName === "type" || pName === "channelType" || pName === "invert";
 
                                 // Check if the value is missing or completely empty
-                                if (action.parameters[i] === null || action.parameters[i] === undefined || action.parameters[i] === "") {
+                                if (action.parameters[i] === "") {
                                     if (isEnum) {
                                         // Automatically fix missing enumerated fields to 0 without warning
                                         action.parameters[i] = 0;
@@ -360,8 +366,6 @@
 
                     checkActions(testObj.actions);
                 });
-
-
 
                 if (newData.commonActions) {
                     if (newData.commonActions.length === 0) {
@@ -476,6 +480,27 @@
                 }
 
                 setData({ ...data, tests: newTests });
+            };
+
+            const duplicateTest = () => {
+                if (view !== 'test' || !selectedId) return;
+
+                // Find the test to copy
+                const sourceTestObj = data.tests.find(t => Object.keys(t)[0] === selectedId);
+                if (!sourceTestObj) return;
+
+                // Ask for a new unique name
+                const newName = prompt("Enter a name for the duplicated test:", `${selectedId} (Copy)`);
+                if (!newName) return;
+                if (getTests().find(t => t.key === newName)) return alert("That test name already exists.");
+
+                // Deep copy the test's contents (dependencies, actions) so they don't share references
+                const copiedContent = JSON.parse(JSON.stringify(sourceTestObj[selectedId]));
+                const newTest = { [newName]: copiedContent };
+
+                // Add it to the list and select it immediately
+                setData(prev => ({ ...prev, tests: [...prev.tests, newTest] }));
+                setSelectedId(newName);
             };
 
             const addCommonAction = () => {
@@ -618,6 +643,14 @@
                                                 data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Move selected test down"
                                             >
                                                 ▼
+                                            </button>
+                                            <button
+                                                className="btn btn-xs btn-info text-dark"
+                                                onClick={duplicateTest}
+                                                disabled={view !== 'test' || !selectedId}
+                                                data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Duplicate selected test"
+                                            >
+                                                ⧉
                                             </button>
                                         </div>
                                         <button className="btn btn-xs btn-primary ms-2" onClick={addTest} data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="Add new test">+</button>
@@ -778,6 +811,22 @@
                 updateTest({ ...testObj, actions: newActions });
             };
 
+            const duplicateAction = (index) => {
+                const actionToCopy = testObj.actions[index];
+
+                // If it's a string (common ref), just copy the string.
+                // If it's an object (custom action), deep copy it so they don't link states.
+                const newAction = typeof actionToCopy === 'string'
+                    ? actionToCopy
+                    : JSON.parse(JSON.stringify(actionToCopy));
+
+                const newActions = [...testObj.actions];
+                // Insert the copied action directly after the original one
+                newActions.splice(index + 1, 0, newAction);
+
+                updateTest({ ...testObj, actions: newActions });
+            };
+
             return (
                 <div>
                     <div className="d-flex justify-content-between border-bottom pb-3 mb-3">
@@ -820,19 +869,20 @@
 
                     <div>
                         {testObj.actions && testObj.actions.map((action, idx) => (
-                            <div key={idx} className="d-flex gap-2 align-items-start mb-2">
-                                <div className="d-flex flex-column gap-1 pt-2">
+                            <div key={idx} className="d-flex gap-2 align-items-start mb-3">
+                                <div className="d-flex flex-column gap-1">
                                     <button className="btn btn-xs btn-dark border" onClick={() => moveAction(idx, -1)}>▲</button>
                                     <button className="btn btn-xs btn-dark border" onClick={() => moveAction(idx, 1)}>▼</button>
+                                    <button className="btn btn-xs btn-dark border text-info" title="Duplicate Action" onClick={() => duplicateAction(idx)}>⧉</button>
                                 </div>
 
-                                <div className="flex-grow-1">
+                                <div className="flex-grow-1 align-self-stretch">
                                     {typeof action === 'string' ? (
-                                        <div className="card action-card common-ref p-3">
+                                        <div className="card action-card common-ref p-3 m-0">
                                             <div className="d-flex justify-content-between align-items-center">
                                                 <div>
-                                                    <strong>Common Action Reference:</strong>
-                                                    <select className="form-select d-inline-block w-auto ms-2"
+                                                    <label className="form-label small fw-bold text-uppercase">Common Action</label>
+                                                    <select className="form-select d-inline-block"
                                                         value={action}
                                                         onChange={(e) => updateAction(idx, e.target.value)}
                                                     >
@@ -917,6 +967,14 @@
                     onChange({ ...action, actionType: val, parameters: newParams });
                 } else if (field === 'name') {
                     onChange({ ...action, name: val });
+                } else if (field === 'cleanup') {
+                    if (val) {
+                        onChange({ ...action, cleanup: true });
+                    } else {
+                        const newAction = { ...action };
+                        delete newAction.cleanup; // Remove key entirely if false
+                        onChange(newAction);
+                    }
                 }
             };
 
@@ -990,7 +1048,24 @@
                                 ))}
                             </select>
                         </div>
-                        <div className="align-items-center col-md-4 d-flex justify-content-end">
+                        <div className="col-md-2">
+                            <label className="form-label small fw-bold text-uppercase">Cleanup <span className="ms-1 infoBubble" data-bs-toggle="tooltip" data-bs-placement="right" data-bs-title="Always run this task even if previous tasks failed" style={{ cursor: 'help' }}>ℹ️</span></label>
+                            <div className="d-flex align-items-center">
+                                <div className="form-control w-auto">
+                                    <input
+                                        className="form-check-input me-2"
+                                        type="checkbox"
+                                        id={`cleanup-${action.name.replace(/\s+/g, '-')}`}
+                                        checked={!!action.cleanup}
+                                        onChange={e => updateField('cleanup', e.target.checked)}
+                                    />
+                                    <label className="form-check-label small" htmlFor={`cleanup-${action.name.replace(/\s+/g, '-')}`}>
+                                        Always Run
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="align-items-center col-md-2 d-flex justify-content-end">
                             <p><span className="px-2 infoBubble infoBubbleLarge" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title={ACTION_HELP} data-bs-html="true" style={{ cursor: 'help' }}>ℹ️</span></p>
                             {!isCommonRef && (
                                 <button className="btn btn-danger" onClick={onRemove}>Remove</button>

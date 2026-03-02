@@ -385,9 +385,10 @@ string getParameter(string param)
     return result + param;
 }
 
-#if defined(INFO) || defined(VERBOSE)
-reportTaskState()
+loadNextTask()
 {
+    @nexttask;
+#if defined(INFO) || defined(VERBOSE)
     if(_currentTaskState == TASKSTATE_SUCCESS)
         logInfo("Task success.");
     else if(_currentTaskState == TASKSTATE_FAILURE)
@@ -395,32 +396,104 @@ reportTaskState()
         logInfo("Task failure.");
         logVerbose(_currentTaskFailureMessage);
     }
-}
-#else
-#define reportTaskState()
+    else
+    {
+        logInfo("Task skipped.");
+    }
 #endif
 
-loadNextTask()
-{
-    reportTaskState();
-
     if(_currentTaskData)
+    {
+        string taskResult = "{}";
+        taskResult = llJsonSetValue(taskResult, ["name"], llJsonGetValue(_currentTaskData, ["name"]));
+        taskResult = llJsonSetValue(taskResult, ["actionType"], llJsonGetValue(_currentTaskData, ["actionType"]));
+        string result = "Success";
+        if(_currentTaskState == TASKSTATE_FAILURE)
+        {
+            result = "Failure";
+            taskResult = llJsonSetValue(taskResult, ["message"], _currentTaskFailureMessage);
+        }
+        else if(_currentTaskState == TASKSTATE_IDLE)
+            result = "Skipped";
+        taskResult = llJsonSetValue(taskResult, ["result"], result);
+
+        string testResult = llLinksetDataRead("R_" + (string)_tests[_activeTest]);
+        testResult = llJsonSetValue(testResult, ["actions", JSON_APPEND], taskResult);
+        llLinksetDataWrite("R_" + (string)_tests[_activeTest], testResult);
+
         _currentTask++;
+    }
 
     list actions = getTaskActions();
 
     if(_currentTask >= llGetListLength(actions))
-        _activeTestState = TESTSTATE_SUCCESS;
+    {
+        if(_activeTestState != TESTSTATE_FAILURE)
+            _activeTestState = TESTSTATE_SUCCESS;
+        if(TRUE) state load_next_test;
+    }
     else
     {
         llSleep(TEST_WAIT_TIME);
         _currentTaskData = (string)actions[_currentTask];
-
         _currentTaskState = TASKSTATE_IDLE;
+
+        if(_activeTestState == TESTSTATE_FAILURE)
+        {
+            if(llJsonGetValue(_currentTaskData, ["cleanup"]) != JSON_TRUE)
+                jump nexttask;
+        }
+
         _currentTaskFailureMessage = "";
 
         _assertToken = NULL_KEY;
         _queryTime = 0;
+
+        list placeholderChecks = [];
+        list params = llJson2List(llJsonGetValue(_currentTaskData, ["parameters"]));
+
+        // Get parameters and replace placeholders, check if placeholder subsitution was succesful and if not fail the test
+        _currentActionParam1 = getParameter((string)params[0]);
+        if(_currentActionParam1 == INVALID_PLACEHOLDER)
+        {
+            logInfo("Placeholder in p1 is invalid.");
+            placeholderChecks += [(string)params[0]];            
+        }
+        _currentActionParam2 = getParameter((string)params[1]);
+        if(_currentActionParam2 == INVALID_PLACEHOLDER)
+        {
+            logInfo("Placeholder in p2 is invalid.");
+            placeholderChecks += [(string)params[1]];
+        }
+        _currentActionParam3 = getParameter((string)params[2]);
+        if(_currentActionParam3 == INVALID_PLACEHOLDER)
+        {
+            logInfo("Placeholder in p3 is invalid.");
+            placeholderChecks += [(string)params[2]];
+        }
+        _currentActionParam4 = getParameter((string)params[3]);
+        if(_currentActionParam4 == INVALID_PLACEHOLDER)
+        {
+            logInfo("Placeholder in p4 is invalid.");
+            placeholderChecks += [(string)params[3]];
+        }
+        _currentActionParam5 = getParameter((string)params[4]);
+        if(_currentActionParam5 == INVALID_PLACEHOLDER)
+        {
+            logInfo("Placeholder in p5 is invalid.");
+            placeholderChecks += [(string)params[4]];
+        }
+
+        logVerbose("Parameters: p1: \"" + _currentActionParam1 + "\" p2: \"" + _currentActionParam2 + "\" p3: \"" + _currentActionParam3 + "\" p4: \"" + _currentActionParam4 + "\" p5: \"" + _currentActionParam5 + "\"");
+        if(placeholderChecks)
+        {
+            logInfo("There was a problem with a placeholder.");
+            _currentTaskState = TASKSTATE_FAILURE;
+            if(llGetListLength(placeholderChecks) > 1)
+                _currentTaskFailureMessage = "Placeholders were not found in LSD: " + llDumpList2String(placeholderChecks, ", ");
+            else
+                _currentTaskFailureMessage = "Placeholder not found in LSD: " + (string)placeholderChecks[0];
+        }
 
         logInfo("Next task is: " + llJsonGetValue(_currentTaskData, ["name"]));
     }
@@ -807,6 +880,10 @@ state load_next_test
             string testJson = llLinksetDataRead("T_" + testName);
             list actions = getTaskActions();
             string deps = llJsonGetValue(testJson, ["dependencies"]);
+            string testResult = llJsonSetValue("{}", ["name"], (string)_tests[_activeTest]);
+            testResult = llJsonSetValue(testResult, ["result"], "Running");
+            llLinksetDataWrite("R_" + (string)_tests[_activeTest], testResult);
+
             if(deps != JSON_INVALID)
             {
                 list dependencies = llJson2List(deps);
@@ -820,7 +897,6 @@ state load_next_test
                         string dependencyTestResult = llLinksetDataRead("R_" + (string)dependencies[i]);
                         if(llJsonGetValue(dependencyTestResult, ["result"]) != "Success")
                         {
-                            string testResult = llJsonSetValue("{}", ["name"], (string)_tests[_activeTest]);
                             testResult = llJsonSetValue(testResult, ["result"], "Skipped - Dependencies not met");
                             len = llGetListLength(actions);
                             for(i = 0; i < len; i++)
@@ -884,6 +960,7 @@ state run_test
         logVerbose("Finished initialization. Starting execution of actions.");
 
         _activeTestState = TESTSTATE_RUNNING;
+        
         loadNextTask();
         llSetTimerEvent(0.1);
         llResetTime();
@@ -906,36 +983,15 @@ state run_test
             _rezzedDummies = [];
         }
 
-        list actions = getTaskActions();
+        string testName = (string)_tests[_activeTest];        
+        string testResult = llLinksetDataRead("R_" + testName);
 
-        string testName = (string)_tests[_activeTest];
-        string testResult = llJsonSetValue("{}", ["name"], testName);
-        string taskResult;
         if(_activeTestState == TESTSTATE_SUCCESS)        
             testResult = llJsonSetValue(testResult, ["result"], "Success");
         else if(_activeTestState == TESTSTATE_CANCELLED)
             testResult = llJsonSetValue(testResult, ["result"], "Cancelled");
         else
             testResult = llJsonSetValue(testResult, ["result"], "Failure");
-
-        len = llGetListLength(actions);
-        for(i = 0; i < len; i++)
-        {
-            taskResult = "{}";
-            taskResult = llJsonSetValue(taskResult, ["name"], llJsonGetValue((string)actions[i], ["name"]));
-            taskResult = llJsonSetValue(taskResult, ["actionType"], llJsonGetValue((string)actions[i], ["actionType"]));
-            if(i == _currentTask && _activeTestState == TESTSTATE_FAILURE)
-            {
-                taskResult = llJsonSetValue(taskResult, ["result"], "Failure");
-                taskResult = llJsonSetValue(taskResult, ["message"], _currentTaskFailureMessage);
-            }
-            else if(i > _currentTask  && _activeTestState == TESTSTATE_FAILURE)
-                taskResult = llJsonSetValue(taskResult, ["result"], "Not run");
-            else
-                taskResult = llJsonSetValue(taskResult, ["result"], "Success");
-
-            testResult = llJsonSetValue(testResult, ["actions", JSON_APPEND], taskResult);
-        }
 
         llLinksetDataWrite("R_" + testName, testResult);
 
@@ -1054,56 +1110,8 @@ state run_test
     timer()
     {
         if(_activeTestState == TESTSTATE_SUCCESS || _activeTestState == TESTSTATE_FAILURE)
-            state load_next_test;
-
-        if(_currentTaskState == TASKSTATE_IDLE)
-        {
-            list placeholderChecks = [];
-            list params = llJson2List(llJsonGetValue(_currentTaskData, ["parameters"]));
-
-            // Get parameters and replace placeholders, check if placeholder subsitution was succesful and if not fail the test
-            _currentActionParam1 = getParameter((string)params[0]);
-            if(_currentActionParam1 == INVALID_PLACEHOLDER)
-            {
-                logInfo("Placeholder in p1 is invalid.");
-                placeholderChecks += [(string)params[0]];            
-            }
-            _currentActionParam2 = getParameter((string)params[1]);
-            if(_currentActionParam2 == INVALID_PLACEHOLDER)
-            {
-                logInfo("Placeholder in p2 is invalid.");
-                placeholderChecks += [(string)params[1]];
-            }
-            _currentActionParam3 = getParameter((string)params[2]);
-            if(_currentActionParam3 == INVALID_PLACEHOLDER)
-            {
-                logInfo("Placeholder in p3 is invalid.");
-                placeholderChecks += [(string)params[2]];
-            }
-            _currentActionParam4 = getParameter((string)params[3]);
-            if(_currentActionParam4 == INVALID_PLACEHOLDER)
-            {
-                logInfo("Placeholder in p4 is invalid.");
-                placeholderChecks += [(string)params[3]];
-            }
-            _currentActionParam5 = getParameter((string)params[4]);
-            if(_currentActionParam5 == INVALID_PLACEHOLDER)
-            {
-                logInfo("Placeholder in p5 is invalid.");
-                placeholderChecks += [(string)params[4]];
-            }
-
-            logVerbose("Parameters: p1: \"" + _currentActionParam1 + "\" p2: \"" + _currentActionParam2 + "\" p3: \"" + _currentActionParam3 + "\" p4: \"" + _currentActionParam4 + "\" p5: \"" + _currentActionParam5 + "\"");
-            if(placeholderChecks)
-            {
-                logInfo("There was a problem with a placeholder.");
-                _currentTaskState = TASKSTATE_FAILURE;
-                if(llGetListLength(placeholderChecks) > 1)
-                    _currentTaskFailureMessage = "Placeholders were not found in LSD: " + llDumpList2String(placeholderChecks, ", ");
-                else
-                    _currentTaskFailureMessage = "Placeholder not found in LSD: " + (string)placeholderChecks[0];
-            }
-        }
+            if(llJsonGetValue(_currentTaskData, ["cleanup"]) != JSON_TRUE)
+                loadNextTask();
 
         integer currentActionType = (integer)llJsonGetValue(_currentTaskData, ["actionType"]);
         if(currentActionType == ACTION_REZ || currentActionType == ACTION_ATTACH)
@@ -1389,8 +1397,7 @@ state run_test
         if(_currentTaskState == TASKSTATE_FAILURE)
         {
             _activeTestState = TESTSTATE_FAILURE;
-            reportTaskState();
-            state load_next_test;
+            loadNextTask();
         }
         else if(_currentTaskState == TASKSTATE_SUCCESS)
             loadNextTask();
